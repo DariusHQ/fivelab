@@ -11,9 +11,9 @@ Run FiveM resources in your browser and in CI. No GTA V, no FXServer, no restart
 
 ## How it works
 
-Each resource runs in its own Lua 5.4 VM ([wasmoon](https://github.com/ceifa/wasmoon)), one per side and per player, the same isolation FiveM gives you. On top of that, FiveLab reimplements the Cfx scripting runtime: events with `source` and net-safety, exports, function references, state bags, threads and `Wait`, the CfxLua syntax extensions, vectors and the natives API.
+Your scripts run on CfxLua, the Lua 5.4 runtime FiveM ships, compiled to WebAssembly: the same syntax extensions, vectors and quaternions, `json` and `msgpack`. Each resource gets its own Lua state, one per side and per player, the same isolation FiveM gives you. On top of that, FiveLab reimplements the Cfx scripting runtime: events with `source` and net-safety, exports, function references, state bags, threads and `Wait`, and the natives API.
 
-FiveLab is a clean-room implementation and contains no code from the FiveM project. It is not affiliated with or endorsed by Cfx.re, Rockstar Games or Take-Two Interactive.
+FiveLab's scripting runtime is a clean-room implementation and contains no code from the FiveM platform. CfxLua and its libraries are open source; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). FiveLab is not affiliated with or endorsed by Cfx.re, Rockstar Games or Take-Two Interactive.
 
 ## License
 
