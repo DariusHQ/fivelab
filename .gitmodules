@@ -1,0 +1,24 @@
+[submodule "native/vendor/lua"]
+	path = native/vendor/lua
+	url = https://github.com/citizenfx/lua.git
+	shallow = true
+[submodule "native/vendor/glm"]
+	path = native/vendor/glm
+	url = https://github.com/citizenfx/glm.git
+	shallow = true
+[submodule "native/vendor/lua-cmsgpack"]
+	path = native/vendor/lua-cmsgpack
+	url = https://github.com/citizenfx/lua-cmsgpack.git
+	shallow = true
+[submodule "native/vendor/msgpack-c"]
+	path = native/vendor/msgpack-c
+	url = https://github.com/msgpack/msgpack-c.git
+	shallow = true
+[submodule "native/vendor/lua-rapidjson"]
+	path = native/vendor/lua-rapidjson
+	url = https://github.com/citizenfx/lua-rapidjson.git
+	shallow = true
+[submodule "native/vendor/rapidjson"]
+	path = native/vendor/rapidjson
+	url = https://github.com/Tencent/rapidjson.git
+	shallow = true
