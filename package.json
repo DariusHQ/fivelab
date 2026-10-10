@@ -1,0 +1,44 @@
+{
+  "name": "fivelab",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Run FiveM resources (Lua + NUI) in your browser and in CI. No GTA V, no server, no restarts.",
+  "keywords": [
+    "fivem",
+    "cfx",
+    "gta5",
+    "lua",
+    "nui",
+    "emulator",
+    "testing",
+    "ci"
+  ],
+  "homepage": "https://github.com/DariusHQ/fivelab#readme",
+  "bugs": "https://github.com/DariusHQ/fivelab/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DariusHQ/fivelab.git"
+  },
+  "license": "MIT",
+  "author": "DariusHQ",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "wasmoon": "1.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.13",
+    "prettier": "3.9.9",
+    "typescript": "6.0.3",
+    "vite": "8.3.3",
+    "vitest": "5.0.2"
+  }
+}
