@@ -10,7 +10,7 @@
  */
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -186,6 +186,8 @@ async function main(): Promise<void> {
     '-o',
     output,
   ])
+  // Emscripten marks its output executable on POSIX systems; git records that.
+  chmodSync(join(root, output), 0o644)
 
   const wasm = readFileSync(join(root, output))
   const sha256 = createHash('sha256').update(wasm).digest('hex')
