@@ -31,9 +31,6 @@
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
-  "dependencies": {
-    "wasmoon": "1.16.0"
-  },
   "devDependencies": {
     "@types/node": "22.18.13",
     "prettier": "3.9.9",
