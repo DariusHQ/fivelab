@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+native/build/
 *.tgz
 *.log
 .DS_Store

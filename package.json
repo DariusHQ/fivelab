@@ -26,6 +26,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "build:wasm": "node scripts/build-wasm.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
