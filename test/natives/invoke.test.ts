@@ -67,11 +67,18 @@ Citizen.InvokeNative(0x1000, field, meta, call, {__data = true})`,
 
   it('reject values natives cannot take', async () => {
     const { output, log } = await run(
-      `print(pcall(Citizen.InvokeNative, 0x1000, print))
+      `-- Light userdata that is no marker: scripts only find the await sentinel in Citizen.Await.
+local sentinel
+for i = 1, math.huge do
+    local name, value = debug.getupvalue(Citizen.Await, i)
+    if not name then break end
+    if type(value) == 'userdata' then sentinel = value end
+end
+print(pcall(Citizen.InvokeNative, 0x1000, print))
 print(pcall(Citizen.InvokeNative, 0x1000, {}))
 print(pcall(Citizen.InvokeNative, 0x1000, {__data = {}}))
 print(pcall(Citizen.InvokeNative, 0x1000, setmetatable({}, {__data = {}})))
-print(pcall(Citizen.InvokeNative, 0x1000, Citizen.AwaitSentinel()))
+print(pcall(Citizen.InvokeNative, 0x1000, sentinel))
 print(pcall(Citizen.InvokeNative, 0x1000, coroutine.create(print)))`,
       [slotRecorder([])],
     )

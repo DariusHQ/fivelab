@@ -23,13 +23,23 @@ export interface ScriptNatives {
   invoke(runtime: ScriptRuntime, ptr: number): LuaValue[]
 }
 
+/**
+ * Where hosts start the clock that threads wait by, in microseconds: a day.
+ * FiveM's counts from when the machine started, which matters because FiveM
+ * reads some delays as times on that clock, all long past.
+ */
+export const CLOCK_START = 86_400_000_000
+
 /** What the scripts of one resource need from the game around them. */
 export interface ScriptHost {
   /** The resource the scripts belong to. */
   readonly resource: string
   readonly natives: ScriptNatives
-  /** Milliseconds of game time, as GetGameTimer returns them. */
-  gameTimer(): number
+  /**
+   * The time on the clock that threads wait by, in whole microseconds from
+   * CLOCK_START. It must not go back.
+   */
+  clock(): number
   /**
    * Writes to the resource's console: print, Citizen.Trace and script
    * errors. The text may hold FiveM colour codes (^1 and so on) and need not
@@ -54,7 +64,7 @@ return t`
 
 /** Reads the entry points the FiveLab scripts leave in their shared table. */
 const ENTRY_POINTS = `local fivelab = ...
-return fivelab.tick, fivelab.runFile`
+return fivelab.collect, fivelab.resume, fivelab.runFile`
 
 function release(...values: LuaValue[]): void {
   for (const value of values) if (value instanceof LuaRef) value.release()
@@ -73,7 +83,8 @@ function functionRef(value: LuaValue): LuaRef {
 export class ScriptRuntime implements NativeCaller {
   readonly state: LuaState
   readonly host: ScriptHost
-  #tick: LuaRef | undefined
+  #collect: LuaRef | undefined
+  #resume: LuaRef | undefined
   #runFile: LuaRef | undefined
   #resultAsObject: LuaRef | undefined
   /** What Citizen.ResultAsObject2 set to turn object results into Lua values. */
@@ -127,9 +138,24 @@ export class ScriptRuntime implements NativeCaller {
     return true
   }
 
-  /** Resumes the threads that are due at the current game time. */
+  /**
+   * Takes the threads that are due out of the queue, for resume() to run. A
+   * process collects in all of its runtimes before it resumes in any, as
+   * FiveM does, so that threads queued during a tick wait for the next one.
+   */
+  collect(): void {
+    this.state.call(this.#collect!)
+  }
+
+  /** Resumes the threads that collect() took, in the order they were queued. */
+  resume(): void {
+    this.state.call(this.#resume!)
+  }
+
+  /** Resumes the threads that are due, when the runtime is the only one to tick. */
   tick(): void {
-    this.state.call(this.#tick!)
+    this.collect()
+    this.resume()
   }
 
   close(): void {
@@ -198,8 +224,8 @@ export class ScriptRuntime implements NativeCaller {
     const [hostTable] = state.run(
       TABLE,
       '=fivelab:host',
-      'gameTimer',
-      state.hostFunction(() => host.gameTimer()),
+      'clock',
+      state.hostFunction(() => host.clock()),
       'trace',
       write,
       'print',
@@ -212,9 +238,10 @@ export class ScriptRuntime implements NativeCaller {
     release(print, trace, checked)
     const [fivelab] = state.run('return {}', '=fivelab:shared')
     state.run(schedulerSource, '@fivelab:/scheduler.lua', hostTable, fivelab)
-    const [tick, runFile] = state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
+    const [collect, resume, runFile] = state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
     release(hostTable, fivelab)
-    this.#tick = functionRef(tick)
+    this.#collect = functionRef(collect)
+    this.#resume = functionRef(resume)
     this.#runFile = functionRef(runFile)
     state.setGlobal('dofile', null)
     state.setGlobal('loadfile', null)

@@ -1,18 +1,25 @@
 --[[
     FiveLab scheduler: Citizen threads, Wait, timeouts and Await.
 
-    Threads are coroutines that the runtime resumes on its ticks, as in FiveM:
+    Threads are coroutines that the runtime resumes on its ticks, the way
+    FiveM's scripting host runs its "bookmarks":
 
-    - Citizen.CreateThread and Citizen.SetTimeout start a thread on a later
-      tick. A thread created during one call into the runtime is queued when
-      that call returns; until then Citizen.ClearTimeout can cancel it, and
-      afterwards it cannot (FiveM behaves the same way).
+    - Citizen.CreateThread and Citizen.SetTimeout queue a new thread for a
+      later tick. Threads created during a call into the runtime are queued
+      when that call returns; until then Citizen.ClearTimeout can cancel
+      them, and afterwards it cannot (FiveM behaves the same way).
     - Citizen.CreateThreadNow runs the thread at once, until it first waits.
     - Citizen.Wait(ms) suspends the current thread for at least `ms`
-      milliseconds of game time; Wait(0) or Wait() until the next tick. A
-      thread that yields anything but a number or nil is never resumed.
+      milliseconds; Wait(0) or Wait() until the next tick. A thread that
+      yields anything but a number or nil, or yields nothing, is never
+      resumed.
     - Citizen.Await(promise) suspends the current thread until the promise
       settles, and resumes it from within the call that settles it.
+
+    A tick resumes the threads that were due when it began, in the order they
+    were queued, whatever their deadlines. Deadlines are microseconds on the
+    host's clock, and delays are converted as FiveM's C code converts them,
+    overflows included.
 
     An error in a thread prints SCRIPT ERROR, like FiveM.
 
@@ -24,7 +31,7 @@ local host, fivelab = ...
 
 local type, error, select, rawget = type, error, select, rawget
 local pcall = pcall
-local math_floor, math_huge = math.floor, math.huge
+local math_floor, math_ceil, math_mininteger = math.floor, math.ceil, math.mininteger
 local string_format = string.format
 local table_remove = table.remove
 local coroutine_create = coroutine.create
@@ -34,12 +41,17 @@ local coroutine_status = coroutine.status
 local coroutine_close = coroutine.close
 local debug_getmetatable = debug.getmetatable
 
-local gameTimer = host.gameTimer
+local clock = host.clock
 local trace = host.trace
 local checked = host.checked
 
 local G = _G
 local Citizen = G.Citizen
+
+-- What Citizen.Await yields to ask for a function that resumes its thread.
+-- FiveM's scheduler takes it out of the Citizen table too.
+local AWAIT = Citizen.AwaitSentinel()
+Citizen.AwaitSentinel = nil
 
 --[[ Errors ]]
 
@@ -65,95 +77,76 @@ end
 -- failed, so the trace of an error in the resource's own threads is empty.
 local function reportThreadError(co, err)
     trace(string_format('^1SCRIPT ERROR: %s^7\n', errorMessage(err)))
+    -- A thread that is still running failed to resume, and has nothing to close.
+    if coroutine_status(co) ~= 'dead' then
+        return
+    end
     local closed, closeError = coroutine_close(co)
     if not closed and errorMessage(closeError) ~= errorMessage(err) then
         trace(string_format('^1Error while closing to-be-closed variables: %s^7\n', errorMessage(closeError)))
     end
 end
 
+--[[ Delays, as FiveM's C code converts them ]]
+
+-- The (int64_t) cast that FiveM's Wait applies to the number a thread
+-- yields, as x86-64 computes it: integers become floats first, fractions are
+-- cut off, and NaN and values out of range give INT64_MIN.
+local function toInt64(n)
+    n = n + 0.0
+    if n ~= n or n >= 0x1p63 or n < -0x1p63 then
+        return math_mininteger
+    elseif n >= 0 then
+        return math_floor(n)
+    end
+    return math_ceil(n)
+end
+
+-- The (int) cast that FiveM's SetTimeout applies to its delay, which
+-- luaL_checknumber made a float.
+local function toInt32(n)
+    if n ~= n or n >= 0x1p31 or n < -0x1p31 then
+        return -0x80000000
+    elseif n >= 0 then
+        return math_floor(n)
+    end
+    return math_ceil(n)
+end
+
+-- The deadline FiveM's scripting host gives a thread scheduled with `at`: a
+-- negative `at` is minus a delay in milliseconds, and any other value a time
+-- on the clock itself, in microseconds, which has long passed for the values
+-- scripts end up with. The arithmetic wraps around, as it does in FiveM.
+local function deadlineOf(at)
+    if at < 0 then
+        return clock() + -at * 1000
+    end
+    return at
+end
+
 --[[ The queue of waiting threads ]]
 
--- A binary heap of threads ordered by wake time, then by the order they were
--- scheduled in.
-local heap, size = {}, 0
-local order = 0
+-- Threads waiting for their deadline, in the order they were queued.
+local queue = {}
 
-local function before(a, b)
-    return a.time < b.time or (a.time == b.time and a.order < b.order)
+local function enqueue(thread, at)
+    thread.deadline = deadlineOf(at)
+    queue[#queue + 1] = thread
 end
 
-local function push(thread, time)
-    order = order + 1
-    thread.time, thread.order = time, order
-    size = size + 1
-    local i = size
-    while i > 1 do
-        local parent = i // 2
-        if not before(thread, heap[parent]) then
-            break
-        end
-        heap[i] = heap[parent]
-        i = parent
-    end
-    heap[i] = thread
-end
-
-local function pop()
-    local top, last = heap[1], heap[size]
-    heap[size] = nil
-    size = size - 1
-    if size > 0 then
-        local i = 1
-        while true do
-            local child = i * 2
-            if child > size then
-                break
-            end
-            if child < size and before(heap[child + 1], heap[child]) then
-                child = child + 1
-            end
-            if not before(heap[child], last) then
-                break
-            end
-            heap[i] = heap[child]
-            i = child
-        end
-        heap[i] = last
-    end
-    return top
-end
-
--- Threads created during the current call into the runtime, with the delay
--- before their first run.
+-- Threads created during the current call into the runtime, with the `at`
+-- FiveM schedules them with: minus their delay.
 local pending = {}
 
 local function flush()
-    local count = #pending
-    if count == 0 then
-        return
-    end
-    local now = gameTimer()
-    for i = 1, count do
+    for i = 1, #pending do
         local thread = pending[i]
         pending[i] = nil
-        push(thread, now + thread.delay)
+        enqueue(thread, thread.at)
     end
-end
-
--- Milliseconds to wait for a number of milliseconds, as FiveM truncates it.
-local function delayOf(ms)
-    if ms ~= ms or ms <= 0 then
-        return 0
-    elseif ms == math_huge then
-        return math_huge
-    end
-    return math_floor(ms)
 end
 
 --[[ Running threads ]]
-
--- What Citizen.Await yields to ask for a function that resumes its thread.
-local AWAIT = {}
 
 local lastId = 0
 
@@ -172,20 +165,18 @@ end
 local run
 
 -- Gives an awaiting thread the function that resumes it. Citizen.Await hands
--- it to the promise and yields again, without a time.
+-- it to the promise and yields nothing, so the thread waits until the promise
+-- calls it. Like FiveM, this reports no error from that part of Await.
 local function awaiting(thread)
     local co = thread.co
-    local ok, err = coroutine_resume(co, function()
+    local ok = coroutine_resume(co, function()
         run(thread)
     end)
-    if not ok then
-        reportThreadError(co, err)
-        return false
-    end
-    return coroutine_status(co) == 'suspended'
+    return ok and coroutine_status(co) == 'suspended'
 end
 
--- Handles the outcome of resuming a thread. Returns whether it is still alive.
+-- Handles the outcome of resuming a thread, as FiveM does. Returns whether
+-- the thread yielded.
 local function resumed(thread, ok, ...)
     local co = thread.co
     if not ok then
@@ -195,28 +186,31 @@ local function resumed(thread, ok, ...)
     if coroutine_status(co) == 'dead' then
         return false
     end
+    -- FiveM looks at the top of the thread's stack, which holds the last value
+    -- the thread yielded, or when it yielded nothing, the function that
+    -- yielded: such a thread is never resumed.
     local count = select('#', ...)
-    local wait = nil
-    if count > 0 then
-        wait = select(count, ...)
+    if count == 0 then
+        return true
     end
+    local wait = select(count, ...)
     if wait == AWAIT then
         return awaiting(thread)
     end
     local kind = type(wait)
     if kind == 'number' then
-        push(thread, gameTimer() + delayOf(wait))
+        enqueue(thread, -toInt64(wait))
     elseif kind == 'nil' then
-        push(thread, gameTimer())
+        enqueue(thread, 0)
     end
     return true
 end
 
-function run(thread, ...)
+function run(thread)
     if coroutine_status(thread.co) == 'dead' then
         return false
     end
-    return resumed(thread, coroutine_resume(thread.co, ...))
+    return resumed(thread, coroutine_resume(thread.co))
 end
 
 local function createThreadNow(fn)
@@ -227,7 +221,7 @@ end
 
 function Citizen.CreateThread(fn)
     local thread = newThread(fn)
-    thread.delay = 0
+    thread.at = 0
     pending[#pending + 1] = thread
     return thread.id
 end
@@ -239,7 +233,9 @@ end
 -- SetTimeout and ClearTimeout check their arguments as FiveM's C functions do.
 Citizen.SetTimeout = checked('n.', function(ms, fn)
     local thread = newThread(fn)
-    thread.delay = delayOf(ms)
+    local delay = toInt32(ms)
+    -- FiveM negates the delay as an int, which leaves INT_MIN as it is.
+    thread.at = delay == -0x80000000 and delay or -delay
     pending[#pending + 1] = thread
     return thread.id
 end)
@@ -283,21 +279,36 @@ G.ClearTimeout = Citizen.ClearTimeout
 
 --[[ Entry points for the runtime ]]
 
--- Resumes the threads that are due. Threads they schedule, even for no time,
--- wait for the next tick.
-function fivelab.tick()
-    flush()
-    local now = gameTimer()
-    if size == 0 or heap[1].time > now then
-        return
-    end
-    local due, count = {}, 0
-    while size > 0 and heap[1].time <= now do
-        count = count + 1
-        due[count] = pop()
-    end
+-- Threads that were due when the current tick began, in the order they were
+-- queued.
+local due = {}
+
+-- Takes the threads that are due out of the queue. A process does this for
+-- all of its runtimes before it resumes threads in any of them, so that, as
+-- in FiveM, a thread queued during a tick waits for the next one.
+function fivelab.collect()
+    local now = clock()
+    local count, kept = #queue, 0
     for i = 1, count do
-        run(due[i])
+        local thread = queue[i]
+        if thread.deadline <= now then
+            due[#due + 1] = thread
+        else
+            kept = kept + 1
+            queue[kept] = thread
+        end
+    end
+    for i = kept + 1, count do
+        queue[i] = nil
+    end
+end
+
+-- Resumes the threads collected as due, then queues the threads they created.
+function fivelab.resume()
+    local batch = due
+    due = {}
+    for i = 1, #batch do
+        run(batch[i])
     end
     flush()
 end

@@ -12,7 +12,7 @@ print('main')`)
     expect(res.take()).toBe('thread\n')
   })
 
-  it('wait for game time', async () => {
+  it('wait for the time they ask for', async () => {
     const res = await createResource()
     res.run(`CreateThread(function()
     print('start')
@@ -48,14 +48,91 @@ print(Citizen.CreateThreadNow(function() Wait(0) end))`)
     expect(res.take()).toBe('now\nfalse\ntrue\n')
   })
 
-  it('run in order of wake time, then of scheduling', async () => {
+  it('run in the order they were queued, whatever their wake times, as in FiveM', async () => {
     const res = await createResource()
-    res.run(`SetTimeout(20, function() print('fourth') end)
-CreateThread(function() print('first') end)
-CreateThread(function() print('second') end)
-SetTimeout(10, function() print('third') end)`)
+    res.run(`SetTimeout(20, function() print('first') end)
+CreateThread(function() print('second') Wait(5) print('fifth') end)
+CreateThread(function() print('third') end)
+SetTimeout(10, function() print('fourth') end)`)
     res.tickAt(100)
     expect(res.take()).toBe('first\nsecond\nthird\nfourth\n')
+    res.tickAt(105)
+    expect(res.take()).toBe('fifth\n')
+  })
+
+  it('wait for the next tick when queued during one', async () => {
+    const res = await createResource()
+    res.run(`CreateThread(function()
+    CreateThread(function() print('created') end)
+    SetTimeout(0, function() print('timed out') end)
+    Wait(0)
+    print('waited')
+end)`)
+    res.tickAt(0)
+    expect(res.take()).toBe('')
+    res.tickAt(0)
+    expect(res.take()).toBe('waited\ncreated\ntimed out\n')
+  })
+
+  it('convert delays as FiveM does, overflows included', async () => {
+    const res = await createResource()
+    res.run(`local delays = {
+    { '-5', -5 }, { '0.9', 0.9 }, { 'nan', 0/0 }, { 'inf', math.huge }, { '-inf', -math.huge },
+    { '2^62', 2^62 }, { 'maxinteger', math.maxinteger }, { '1.9', 1.9 }, { '2^31', 2^31 },
+}
+for _, delay in ipairs(delays) do
+    local name, ms = delay[1], delay[2]
+    CreateThread(function() Wait(ms) print('wait', name) end)
+end
+for _, delay in ipairs(delays) do
+    local name, ms = delay[1], delay[2]
+    SetTimeout(ms, function() print('timeout', name) end)
+end`)
+    res.tickAt(0)
+    expect(res.take()).toBe('timeout\t-5\ntimeout\t0.9\n')
+    // Wait casts to int64_t: what is out of range wraps around to no wait at all.
+    res.tickAt(1)
+    expect(res.take()).toBe(
+      [
+        'timeout\t1.9',
+        'wait\t-5',
+        'wait\t0.9',
+        'wait\tnan',
+        'wait\tinf',
+        'wait\t-inf',
+        'wait\t2^62',
+        'wait\tmaxinteger',
+        'wait\t1.9',
+        '',
+      ].join('\n'),
+    )
+    // SetTimeout casts to int: what is out of range waits 2^31 milliseconds.
+    res.tickAt(2 ** 31 - 1)
+    expect(res.take()).toBe('')
+    res.tickAt(2 ** 31)
+    expect(res.take()).toBe(
+      [
+        'timeout\tnan',
+        'timeout\tinf',
+        'timeout\t-inf',
+        'timeout\t2^62',
+        'timeout\tmaxinteger',
+        'timeout\t2^31',
+        'wait\t2^31',
+        '',
+      ].join('\n'),
+    )
+  })
+
+  it('stall after yielding nothing, as FiveM does', async () => {
+    const res = await createResource()
+    res.run(`CreateThread(function()
+    coroutine.yield()
+    print('resumed')
+end)
+print(Citizen.CreateThreadNow(function() coroutine.yield() end))`)
+    res.frames(5)
+    expect(res.take()).toBe('true\n')
   })
 
   it('let script files wait at their top level', async () => {
@@ -226,6 +303,17 @@ end)`)
     expect(res.take()).toBe('false\tnope\n')
   })
 
+  it('reports no error from handing the promise its callbacks, as in FiveM', async () => {
+    const res = await createResource()
+    res.run(`CreateThread(function()
+    print('awaiting')
+    Citizen.Await({ state = 0 })
+    print('resumed')
+end)`)
+    res.frames(3)
+    expect(res.take()).toBe('awaiting\n')
+  })
+
   it('returns the value of a settled promise without waiting', async () => {
     const res = await createResource()
     res.run(`local ready = promise.new()
@@ -240,8 +328,8 @@ describe('globals', () => {
     const res = await createResource()
     res.run(`print(Wait == Citizen.Wait, CreateThread == Citizen.CreateThread,
     SetTimeout == Citizen.SetTimeout, ClearTimeout == Citizen.ClearTimeout,
-    type(promise.new), type(require), dofile, loadfile)`)
-    expect(res.take()).toBe('true\ttrue\ttrue\ttrue\tfunction\tfunction\tnil\tnil\n')
+    type(promise.new), type(require), dofile, loadfile, Citizen.AwaitSentinel)`)
+    expect(res.take()).toBe('true\ttrue\ttrue\ttrue\tfunction\tfunction\tnil\tnil\tnil\n')
   })
 
   it('print converts values with the current global tostring', async () => {

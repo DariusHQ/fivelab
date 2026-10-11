@@ -4,7 +4,7 @@ import {
   nativeWrapper,
   type NativeDefinition,
 } from '../../src/core/natives/index.ts'
-import { ScriptRuntime, type ScriptNatives } from '../../src/core/scripting/runtime.ts'
+import { CLOCK_START, ScriptRuntime, type ScriptNatives } from '../../src/core/scripting/runtime.ts'
 import { createRuntime } from '../lua/helpers.ts'
 
 export interface ResourceOptions {
@@ -28,7 +28,7 @@ export interface TestResource {
   readonly diagnostics: readonly string[]
   /** The names Citizen.LoadNative was asked for. */
   readonly loads: readonly string[]
-  /** The game time in milliseconds. */
+  /** The time in milliseconds, which the runtime's clock counts from CLOCK_START. */
   readonly time: number
   /** Runs a script file of the resource. */
   run(source: string, path?: string): boolean
@@ -76,7 +76,7 @@ export async function createResource(options: ResourceOptions = {}): Promise<Tes
   const script = ScriptRuntime.create(runtime, {
     resource: name,
     natives: scriptNatives(natives, client, loads),
-    gameTimer: () => time,
+    clock: () => CLOCK_START + time * 1000,
     trace: (text) => {
       output += text
     },
