@@ -468,9 +468,11 @@ describe('globals', () => {
     res.run(`local function routine() print('routine') end
 print(select('#', Citizen.SetTickRoutine(routine)), select('#', Citizen.SetBoundaryRoutine(routine)),
     select('#', Citizen.SetStackTraceRoutine(routine)), select('#', Citizen.SetTickRoutine()))
+print(select('#', Citizen.SetCallRefRoutine(routine)), select('#', Citizen.SetDuplicateRefRoutine(routine)),
+    select('#', Citizen.SetDeleteRefRoutine(routine)))
 CreateThread(function() print('thread') end)`)
     res.tickAt(0)
-    expect(res.take()).toBe('0\t0\t0\t0\nthread\n')
+    expect(res.take()).toBe('0\t0\t0\t0\n0\t0\t0\nthread\n')
   })
 
   it('print converts values with the current global tostring', async () => {

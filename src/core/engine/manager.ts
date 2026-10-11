@@ -12,7 +12,7 @@ import type { NativeContext } from './context.ts'
 import { Dependencies } from './dependencies.ts'
 import { EventManager } from './events.ts'
 import { INT32_MIN } from './hook.ts'
-import { strtoull } from './libc.ts'
+import { atoi, strtoull } from './libc.ts'
 import { isFxVersionAtLeast } from './manifest.ts'
 import { arrayLength } from './msgpack.ts'
 import { engineNatives } from './natives/index.ts'
@@ -46,6 +46,14 @@ export interface ResourceManagerOptions {
   readonly oneSync?: boolean
   /** On servers, the game build that sv_enforceGameBuild enforces, 3258 by default as in FiveM. */
   readonly gameBuild?: number
+}
+
+/** What a function reference names; see ResourceManager.lookUpRef. */
+export interface FoundRef {
+  readonly resource: Resource
+  readonly runtime: ScriptRuntime
+  /** The index of the reference in the runtime. */
+  readonly index: number
 }
 
 /**
@@ -165,6 +173,23 @@ export class ResourceManager {
 
   get resources(): IterableIterator<Resource> {
     return this.#resources.values()
+  }
+
+  /**
+   * The runtime that a function reference names, and the index of the
+   * reference in it, as FiveM looks references up: by the resource, or one
+   * that provides its name, and the id of the runtime it runs.
+   */
+  lookUpRef(ref: string): FoundRef | undefined {
+    const { resource: name, instance, index } = parseRef(ref)
+    // FiveM's own runtime for callbacks of its C++ code, which FiveLab has not.
+    if (name === '_cfx_internal') return undefined
+    const resource = this.getResource(name)
+    const runtime = resource?.runtime
+    if (resource === undefined || runtime == null || runtime.host.instanceId !== instance) {
+      return undefined
+    }
+    return { resource, runtime, index }
   }
 
   /**
@@ -355,6 +380,25 @@ export class ResourceManager {
   /** @internal Called by a resource that destroys its runtime. */
   removeRuntime(resource: Resource): void {
     this.#ticking.splice(this.#ticking.indexOf(resource), 1)
+  }
+}
+
+/**
+ * The parts of a function reference, "resource:instance:index", as FiveM
+ * reads them: the resource is what comes before the first colon, the
+ * instance what follows it and the index what follows the second, which
+ * atoi reads. Without a second colon, the index is read from the start.
+ */
+function parseRef(ref: string): { resource: string; instance: number; index: number } {
+  const first = ref.indexOf(':')
+  const second = ref.indexOf(':', first + 1)
+  // FiveM takes `second - first` characters after the first colon, all of the
+  // rest when that is negative.
+  const length = second - first
+  return {
+    resource: first === -1 ? ref : ref.slice(0, first),
+    instance: atoi(length < 0 ? ref.slice(first + 1) : ref.slice(first + 1, first + 1 + length)),
+    index: atoi(ref.slice(second + 1)),
   }
 }
 

@@ -12,6 +12,7 @@ import {
 import type { NativeCaller } from '../natives/invoker.ts'
 import eventsSource from './lua/events.lua?raw'
 import nativesSource from './lua/natives.lua?raw'
+import refsSource from './lua/refs.lua?raw'
 import schedulerSource from './lua/scheduler.lua?raw'
 import deferredSource from './lua/vendor/deferred.lua?raw'
 
@@ -95,7 +96,8 @@ return t`
 
 /** Reads the entry points the FiveLab scripts leave in their shared table. */
 const ENTRY_POINTS = `local fivelab = ...
-return fivelab.collect, fivelab.resume, fivelab.runFile, fivelab.flush, fivelab.walkStack`
+return fivelab.collect, fivelab.resume, fivelab.runFile, fivelab.flush, fivelab.walkStack,
+    fivelab.duplicateRef, fivelab.deleteRef`
 
 function release(...values: LuaValue[]): void {
   for (const value of values) if (value instanceof LuaRef) value.release()
@@ -134,6 +136,8 @@ export class ScriptRuntime implements NativeCaller {
   #walkStack: LuaRef | undefined
   /** The frames walkStack collects while the scheduler walks them. */
   #walked: StackFrame[] | undefined
+  #duplicateRef: LuaRef | undefined
+  #deleteRef: LuaRef | undefined
   #resultAsObject: LuaRef | undefined
   /** What Citizen.ResultAsObject2 set to turn object results into Lua values. */
   #deserializer: LuaValue = null
@@ -271,6 +275,37 @@ export class ScriptRuntime implements NativeCaller {
     return frames
   }
 
+  /**
+   * Counts another holder of the reference at `index`, as FiveM's ref
+   * duplication routine does, and returns the index it keeps, or -1 for a
+   * reference the runtime does not have. Like FiveM, this reports errors;
+   * it then gives -1, where FiveM gives an index it never set.
+   */
+  duplicateRef(index: number): number {
+    try {
+      const [kept] = this.state.callOnMain(this.#duplicateRef!, index)
+      return Number(kept)
+    } catch (error) {
+      if (!(error instanceof LuaError)) throw error
+      this.#reportRoutineError('system ref duplication', error)
+      return -1
+    }
+  }
+
+  /**
+   * Takes a holder of the reference at `index` away, as FiveM's ref deletion
+   * routine does: the runtime forgets the function once none is left. Like
+   * FiveM, this reports errors.
+   */
+  deleteRef(index: number): void {
+    try {
+      this.state.callOnMain(this.#deleteRef!, index)
+    } catch (error) {
+      if (!(error instanceof LuaError)) throw error
+      this.#reportRoutineError('system ref deletion', error)
+    }
+  }
+
   /** How FiveM's Lua runtime reports an error in a routine it calls, such as the event routine. */
   describeRoutineError(routine: string, error: LuaError): string {
     const traceback = error.luaTraceback === undefined ? '' : `\n${error.luaTraceback}`
@@ -348,7 +383,8 @@ export class ScriptRuntime implements NativeCaller {
     const [fivelab] = state.run('return {}', '=fivelab:shared')
     state.run(schedulerSource, '@fivelab:/scheduler.lua', hostTable, fivelab)
     state.run(eventsSource, '@fivelab:/events.lua', hostTable, fivelab)
-    const [collect, resume, runFile, flush, walkStack] = state.run(
+    state.run(refsSource, '@fivelab:/refs.lua', fivelab)
+    const [collect, resume, runFile, flush, walkStack, duplicateRef, deleteRef] = state.run(
       ENTRY_POINTS,
       '=fivelab:entry',
       fivelab,
@@ -359,6 +395,8 @@ export class ScriptRuntime implements NativeCaller {
     this.#runFile = functionRef(runFile)
     this.#flush = functionRef(flush)
     this.#walkStack = functionRef(walkStack)
+    this.#duplicateRef = functionRef(duplicateRef)
+    this.#deleteRef = functionRef(deleteRef)
     state.setGlobal('dofile', null)
     state.setGlobal('loadfile', null)
   }
@@ -371,6 +409,9 @@ export class ScriptRuntime implements NativeCaller {
     const [resultAsObject] = state.call(marker)
     marker.release()
     this.#resultAsObject = resultAsObject as LuaRef
+    const checked = state.cFunction(CFunction.checked)
+    /** A C function that checks its arguments as `checks` says, then calls `fn`; see checked. */
+    const check = (checks: string, fn: LuaHostFunction) => state.call(checked, checks, fn)[0]!
     const functions: [string, LuaValue][] = [
       ['InvokeNative', state.cFunction(CFunction.invokeNative, invoker)],
       ['LoadNative', state.hostFunction((args) => this.#loadNative(args))],
@@ -412,12 +453,24 @@ export class ScriptRuntime implements NativeCaller {
         'SubmitBoundaryEnd',
         state.hostFunction((args) => host.submitBoundary('end', args.integer(1))),
       ],
-      // FiveM ignores tick routines. It keeps the first boundary and stack
-      // trace routines it is given, which its scheduler gives before any
-      // resource script runs, so calls from scripts change nothing.
+      [
+        'CanonicalizeRef',
+        check(
+          'i',
+          state.hostFunction(
+            (args) => `${host.resource}:${host.instanceId}:${BigInt.asIntN(32, args.integer(1))}`,
+          ),
+        ),
+      ],
+      // FiveM ignores tick routines. It keeps the first of the other
+      // routines it is given, which its scheduler gives before any resource
+      // script runs, so calls from scripts change nothing.
       ['SetTickRoutine', state.cFunction(CFunction.noop)],
       ['SetBoundaryRoutine', state.cFunction(CFunction.noop)],
       ['SetStackTraceRoutine', state.cFunction(CFunction.noop)],
+      ['SetCallRefRoutine', state.cFunction(CFunction.noop)],
+      ['SetDuplicateRefRoutine', state.cFunction(CFunction.noop)],
+      ['SetDeleteRefRoutine', state.cFunction(CFunction.noop)],
     ]
     if (host.natives.client) {
       functions.push(
@@ -426,7 +479,7 @@ export class ScriptRuntime implements NativeCaller {
       )
     }
     const [citizen] = state.run(TABLE, '=fivelab:citizen', ...functions.flat())
-    release(...functions.map(([, value]) => value))
+    release(checked, ...functions.map(([, value]) => value))
     return citizen ?? null
   }
 
