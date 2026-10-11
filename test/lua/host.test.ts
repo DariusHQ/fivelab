@@ -47,6 +47,22 @@ describe('host functions', () => {
     expect(bytes).toEqual(new Uint8Array([0, 1, 255]))
   })
 
+  it('read integers as lua_tointeger does', async () => {
+    const lua = (await createRuntime()).newState()
+    const integers: bigint[] = []
+    lua.setGlobal(
+      'take',
+      lua.hostFunction((args) => {
+        for (let i = 1; i <= args.count + 1; i++) integers.push(args.integer(i))
+      }),
+    )
+    lua.run(
+      `take(math.maxinteger, -3, 2.0, 2.5, '12', ' 0x10 ', '1.0', '1.5', nil, true, {})`,
+      '=test',
+    )
+    expect(integers).toEqual([2n ** 63n - 1n, -3n, 2n, 0n, 12n, 16n, 1n, 0n, 0n, 0n, 0n, 0n])
+  })
+
   it('turn JavaScript exceptions into Lua errors', async () => {
     const lua = (await createRuntime()).newState()
     const throwing = (value: unknown) =>

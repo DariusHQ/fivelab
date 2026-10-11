@@ -185,6 +185,14 @@ export class HostArgs {
     return values
   }
 
+  /**
+   * An argument as lua_tointeger reads it: an integer, or a float or a
+   * string that converts to one exactly; any other value reads as 0.
+   */
+  integer(index: number): bigint {
+    return this.state.runtime.exports.fl_tointeger64(this.L, index)
+  }
+
   /** The raw bytes of a string argument, or null for other types. */
   bytes(index: number): Uint8Array | null {
     if (this.type(index) !== LUA_TSTRING) return null
