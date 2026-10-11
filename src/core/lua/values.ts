@@ -19,3 +19,12 @@ export class LuaVector {
     this.w = Math.fround(w)
   }
 }
+
+/** A number that reaches Lua as a float even when it is integral, as native float results do. */
+export class LuaFloat {
+  readonly value: number
+
+  constructor(value: number) {
+    this.value = value
+  }
+}

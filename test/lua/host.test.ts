@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  CFunction,
   LuaError,
   LuaRef,
   LuaVector,
@@ -180,5 +181,46 @@ describe('host functions', () => {
     const b = runtime.newState()
     const fn = a.hostFunction(() => 1)
     expect(() => b.setGlobal('fn', fn)).toThrow('another Lua state')
+  })
+
+  it('name argument types as Lua argument errors do', async () => {
+    const lua = (await createRuntime()).newState()
+    const names: string[] = []
+    lua.setGlobal(
+      'types',
+      lua.hostFunction((args) => {
+        for (let i = 1; i <= args.count + 1; i++) names.push(args.typeName(i))
+      }),
+    )
+    lua.run(`types(nil, true, 1, vec(1, 2), 's', {}, print, coroutine.create(print))`, '=test')
+    expect(names).toEqual([
+      'nil',
+      'boolean',
+      'number',
+      'vector',
+      'string',
+      'table',
+      'function',
+      'thread',
+      'no value',
+    ])
+  })
+})
+
+describe('C functions', () => {
+  it('close over upvalues', async () => {
+    const lua = (await createRuntime()).newState()
+    const marker = lua.cFunction(CFunction.resultAsInteger)
+    const invoke = lua.cFunction(
+      CFunction.invokeNative,
+      lua.hostFunction(() => 'invoked'),
+    )
+    lua.setGlobal('marker', marker)
+    lua.setGlobal('invoke', invoke)
+    expect(lua.run('return type(marker()), marker() == marker(), invoke(0)', '=test')).toEqual([
+      'userdata',
+      true,
+      'invoked',
+    ])
   })
 })

@@ -1,5 +1,5 @@
 import {
-  CFUNC_REQUIRE,
+  CFunction,
   LUA_MULTRET,
   LUA_OK,
   LUA_TBOOLEAN,
@@ -20,15 +20,15 @@ import {
 } from './abi.ts'
 import { LuaError, LuaFatalError, isStackOverflow } from './errors.ts'
 import type { LuaRuntime } from './runtime.ts'
-import { LuaVector, type LuaVectorType } from './values.ts'
+import { LuaFloat, LuaVector, type LuaVectorType } from './values.ts'
 
 export type LuaRefType = 'table' | 'function' | 'userdata' | 'thread' | 'matrix'
 
 /**
  * Values that cross between JavaScript and Lua. nil reads as null; undefined
  * and null both push nil. Strings read as UTF-8. Integers outside the safe
- * range read as bigint. Tables, functions, userdata, threads and matrices read
- * as LuaRef.
+ * range read as bigint. Integral numbers push as integers, unless wrapped in
+ * LuaFloat. Tables, functions, userdata, threads and matrices read as LuaRef.
  */
 export type LuaValue =
   | null
@@ -39,6 +39,7 @@ export type LuaValue =
   | string
   | Uint8Array
   | LuaVector
+  | LuaFloat
   | LuaRef
   | LuaHostFunction
 
@@ -83,6 +84,21 @@ const REF_TYPES: Record<number, LuaRefType> = {
   [LUA_TFUNCTION]: 'function',
   [LUA_TUSERDATA]: 'userdata',
   [LUA_TLIGHTUSERDATA]: 'userdata',
+  [LUA_TTHREAD]: 'thread',
+  [LUA_TMATRIX]: 'matrix',
+}
+
+const TYPE_NAMES: Record<number, string> = {
+  [LUA_TNONE]: 'no value',
+  [LUA_TNIL]: 'nil',
+  [LUA_TBOOLEAN]: 'boolean',
+  [LUA_TLIGHTUSERDATA]: 'light userdata',
+  [LUA_TNUMBER]: 'number',
+  [LUA_TVECTOR]: 'vector',
+  [LUA_TSTRING]: 'string',
+  [LUA_TTABLE]: 'table',
+  [LUA_TFUNCTION]: 'function',
+  [LUA_TUSERDATA]: 'userdata',
   [LUA_TTHREAD]: 'thread',
   [LUA_TMATRIX]: 'matrix',
 }
@@ -152,6 +168,11 @@ export class HostArgs {
   /** The Lua type code of an argument (LUA_TNONE past the end). */
   type(index: number): number {
     return this.state.runtime.exports.fl_type(this.L, index)
+  }
+
+  /** The type of an argument as Lua's argument errors name it: "no value", "light userdata" and so on. */
+  typeName(index: number): string {
+    return TYPE_NAMES[this.type(index)] ?? 'userdata'
   }
 
   get(index: number): LuaValue {
@@ -308,8 +329,14 @@ export class LuaState {
 
   /** FiveM's require: returns loaded libraries and opens 'glm' on demand. */
   requireFunction(): LuaRef {
+    return this.cFunction(CFunction.require)
+  }
+
+  /** C function `which` of the module (see CFunction), closing over `upvalues`. */
+  cFunction(which: number, ...upvalues: LuaValue[]): LuaRef {
     return this.#enter((L) => {
-      this.runtime.exports.fl_pushcfunction(L, CFUNC_REQUIRE)
+      for (const value of upvalues) this.push(L, value)
+      this.runtime.exports.fl_pushcfunction(L, which, upvalues.length)
       return this.#popRef(L)
     })
   }
@@ -402,6 +429,8 @@ export class LuaState {
           ex.fl_pushnil(L)
         } else if (value instanceof Uint8Array) {
           this.runtime.withBytes(value, (ptr, length) => ex.fl_pushlstring(L, ptr, length))
+        } else if (value instanceof LuaFloat) {
+          ex.fl_pushnumber(L, value.value)
         } else if (value instanceof LuaVector) {
           ex.fl_pushvector(L, VECTOR_KIND[value.type], value.x, value.y, value.z, value.w)
         } else if (value instanceof LuaRef) {

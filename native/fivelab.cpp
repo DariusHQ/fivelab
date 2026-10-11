@@ -15,6 +15,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -214,10 +215,459 @@ static int fl_tostring_k(lua_State *L) {
   return 1;
 }
 
-/* C functions the host can push by number. */
+/* }====================================================== */
+
+
+/*
+** {======================================================
+** Natives
+** =======================================================
+*/
+
+/*
+** Citizen.InvokeNative and the functions around it, with FiveM's semantics.
+** Arguments become 64-bit slots: nil and false are 0, true is 1, integers
+** keep their bits, floats become 32-bit float bits, strings are pointers,
+** vectors take one float slot per component and tables pass their __data.
+** Light userdata markers ask for out-pointers or choose how to read the
+** result. The marshalled call goes to a host function, which runs the
+** native and returns its results.
+*/
+
+#define FL_NATIVE_ARGS 32
+#define FL_NATIVE_RETVALS 16
+#define FL_POINTER_FIELDS 128
+
+/* What a marker asks for, in the order of FiveM's fx::invoker::MetaField. */
 enum {
-  FL_CFUNC_REQUIRE = 1
+  FL_META_POINTER_INT,
+  FL_META_POINTER_FLOAT,
+  FL_META_POINTER_VECTOR,
+  FL_META_RETURN_ANYWAY,
+  FL_META_RESULT_INT,
+  FL_META_RESULT_LONG,
+  FL_META_RESULT_FLOAT,
+  FL_META_RESULT_STRING,
+  FL_META_RESULT_VECTOR,
+  FL_META_RESULT_OBJECT,
+  FL_META_MAX
 };
+
+/* An argument's type word: flags, and the size of what a pointer points to. */
+#define FL_ARG_POINTER 0x80000000u
+#define FL_ARG_STRING 0x40000000u
+#define FL_ARG_SIZE 0x1fffffffu
+
+/* The kind of Lua value an argument slot came from. */
+enum {
+  FL_SOURCE_NIL,
+  FL_SOURCE_BOOLEAN,
+  FL_SOURCE_INTEGER,
+  FL_SOURCE_FLOAT,
+  FL_SOURCE_STRING,
+  FL_SOURCE_VECTOR,
+  FL_SOURCE_POINTER
+};
+
+/* A marshalled call, read and completed by the host. The layout is part of the ABI. */
+struct FLNativeCall {
+  uint64_t hash;
+  uint64_t arguments[FL_NATIVE_ARGS];
+  uint64_t results[4];  /* the primary result; a vector takes three slots */
+  uint64_t buffers[3 * FL_NATIVE_RETVALS];  /* what out-pointer arguments point to */
+  uint32_t types[FL_NATIVE_ARGS];
+  uint32_t retvals[FL_NATIVE_RETVALS];  /* where each result is; the first is `results` */
+  uint8_t rettypes[FL_NATIVE_RETVALS];  /* how to read each one: FL_META_*, or FL_META_MAX */
+  uint8_t sources[FL_NATIVE_ARGS];
+  uint32_t nargs;
+  uint32_t nretvals;
+  uint32_t nbuffers;  /* slots of `buffers` in use */
+  const char *error;  /* why marshalling failed, or NULL */
+};
+
+static_assert(offsetof(FLNativeCall, arguments) == 8, "FLNativeCall layout");
+static_assert(offsetof(FLNativeCall, results) == 264, "FLNativeCall layout");
+static_assert(offsetof(FLNativeCall, buffers) == 296, "FLNativeCall layout");
+static_assert(offsetof(FLNativeCall, types) == 680, "FLNativeCall layout");
+static_assert(offsetof(FLNativeCall, retvals) == 808, "FLNativeCall layout");
+static_assert(offsetof(FLNativeCall, rettypes) == 872, "FLNativeCall layout");
+static_assert(offsetof(FLNativeCall, sources) == 888, "FLNativeCall layout");
+static_assert(offsetof(FLNativeCall, nargs) == 920, "FLNativeCall layout");
+static_assert(offsetof(FLNativeCall, nretvals) == 924, "FLNativeCall layout");
+static_assert(offsetof(FLNativeCall, nbuffers) == 928, "FLNativeCall layout");
+static_assert(offsetof(FLNativeCall, error) == 932, "FLNativeCall layout");
+
+/* Markers point into these, so they compare equal to themselves as in FiveM. */
+static uint8_t fl_metafields[FL_META_MAX];
+
+/*
+** PointerValueIntInitialized and PointerValueFloatInitialized markers. Like
+** FiveM, they come from a ring that the module shares between its states.
+*/
+struct FLPointerField {
+  uint64_t value[3];
+  uint8_t type;
+};
+
+static FLPointerField fl_pointerfields[FL_POINTER_FIELDS];
+static unsigned fl_nextpointerfield = 0;
+
+static char fl_awaitsentinel;
+
+/* Formatted marshalling errors; a call fails at its first error. */
+static char fl_nativeerror[64];
+
+static int fl_nativefail(FLNativeCall *call, const char *error) {
+  call->error = error;
+  return 0;
+}
+
+/* Returns the first of `n` free slots, or -1 after failing the call. */
+static int fl_nativereserve(FLNativeCall *call, uint32_t n) {
+  if (FL_NATIVE_ARGS - call->nargs < n) {
+    fl_nativefail(call, "too many arguments");
+    return -1;
+  }
+  return static_cast<int>(call->nargs);
+}
+
+static void fl_nativeset(FLNativeCall *call, int slot, uint64_t value, uint32_t type, uint8_t source) {
+  call->arguments[slot] = value;
+  call->types[slot] = type;
+  call->sources[slot] = source;
+  call->nargs = static_cast<uint32_t>(slot) + 1;
+}
+
+static uint64_t fl_floatbits(float f) {
+  uint32_t bits;
+  memcpy(&bits, &f, sizeof(bits));
+  return bits;
+}
+
+/* Adds an out-pointer argument, its buffer initialized from `init` or zeroed. */
+static int fl_nativeretval(FLNativeCall *call, int field, const uint64_t *init) {
+  if (call->nretvals >= FL_NATIVE_RETVALS)
+    return fl_nativefail(call, "too many return value arguments");
+  uint32_t words = (field == FL_META_POINTER_VECTOR) ? 3 : 1;
+  uint64_t *buffer = &call->buffers[call->nbuffers];
+  call->nbuffers += words;
+  for (uint32_t i = 0; i < words; i++)
+    buffer[i] = (init != NULL) ? init[i] : 0;
+  call->retvals[call->nretvals] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(buffer));
+  call->rettypes[call->nretvals] = static_cast<uint8_t>(field);
+  call->nretvals++;
+  int slot = fl_nativereserve(call, 1);
+  if (slot < 0)
+    return 0;
+  fl_nativeset(call, slot, reinterpret_cast<uintptr_t>(buffer),
+               FL_ARG_POINTER | static_cast<uint32_t>(words * sizeof(uint64_t)), FL_SOURCE_POINTER);
+  return 1;
+}
+
+static int fl_nativemarker(FLNativeCall *call, void *p) {
+  uint8_t *ptr = static_cast<uint8_t *>(p);
+  if (ptr >= fl_metafields && ptr < fl_metafields + FL_META_MAX) {
+    int field = static_cast<int>(ptr - fl_metafields);
+    switch (field) {
+      case FL_META_POINTER_INT:
+      case FL_META_POINTER_FLOAT:
+      case FL_META_POINTER_VECTOR:
+        return fl_nativeretval(call, field, NULL);
+      case FL_META_RETURN_ANYWAY:
+        if (call->rettypes[0] == FL_META_MAX)
+          call->rettypes[0] = FL_META_RETURN_ANYWAY;
+        return 1;
+      default:
+        call->rettypes[0] = static_cast<uint8_t>(field);
+        return 1;
+    }
+  }
+  uint8_t *fields = reinterpret_cast<uint8_t *>(fl_pointerfields);
+  if (ptr >= fields && ptr < fields + sizeof(fl_pointerfields)) {
+    FLPointerField *field = reinterpret_cast<FLPointerField *>(ptr);
+    return fl_nativeretval(call, field->type, field->value);
+  }
+  return fl_nativefail(call, "unknown userdata pointer");
+}
+
+static int fl_nativearg(lua_State *L, FLNativeCall *call, int idx);
+
+/*
+** Marshals the value on top, which came from a table's __data: returns 1 or
+** 0 as fl_nativearg does, or -1 when values of this type cannot be passed.
+** Strings stay on the stack so that the pointer to them remains valid.
+*/
+static int fl_nativedata(lua_State *L, FLNativeCall *call, int type) {
+  switch (type) {
+    case LUA_TBOOLEAN:
+    case LUA_TNUMBER:
+    case LUA_TVECTOR:
+    case LUA_TSTRING: {
+      int ok = fl_nativearg(L, call, lua_gettop(L));
+      if (type != LUA_TSTRING)
+        lua_pop(L, 1);
+      return ok;
+    }
+    default:
+      lua_pop(L, 1);
+      return -1;
+  }
+}
+
+/* A table passes its __data field, or the __data of its metatable, calling it if it is a function. */
+static int fl_nativetable(lua_State *L, FLNativeCall *call, int idx) {
+  idx = lua_absindex(L, idx);
+  luaL_checkstack(L, 2, "table arguments");
+  lua_pushliteral(L, "__data");
+  int done = fl_nativedata(L, call, lua_rawget(L, idx));
+  if (done >= 0)
+    return done;
+  int type = luaL_getmetafield(L, idx, "__data");
+  if (type == LUA_TNIL)
+    return fl_nativefail(call, "invalid table argument");
+  if (type == LUA_TFUNCTION) {
+    lua_pushvalue(L, idx);
+    lua_call(L, 1, 1);
+    type = lua_type(L, -1);
+  }
+  done = fl_nativedata(L, call, type);
+  if (done >= 0)
+    return done;
+  return fl_nativefail(call, "invalid lua type in __data");
+}
+
+/* Marshals argument `idx`; returns 0 after failing the call. */
+static int fl_nativearg(lua_State *L, FLNativeCall *call, int idx) {
+  int slot = fl_nativereserve(call, 1);
+  if (slot < 0)
+    return 0;
+  int type = lua_type(L, idx);
+  switch (type) {
+    case LUA_TNIL:
+      fl_nativeset(call, slot, 0, 0, FL_SOURCE_NIL);
+      return 1;
+    case LUA_TBOOLEAN:
+      fl_nativeset(call, slot, lua_toboolean(L, idx) ? 1 : 0, 0, FL_SOURCE_BOOLEAN);
+      return 1;
+    case LUA_TNUMBER:
+      if (lua_isinteger(L, idx))
+        fl_nativeset(call, slot, static_cast<uint64_t>(lua_tointeger(L, idx)), 0, FL_SOURCE_INTEGER);
+      else
+        fl_nativeset(call, slot, fl_floatbits(static_cast<float>(lua_tonumber(L, idx))), 0, FL_SOURCE_FLOAT);
+      return 1;
+    case LUA_TSTRING: {
+      size_t len;
+      const char *s = lua_tolstring(L, idx, &len);
+      fl_nativeset(call, slot, reinterpret_cast<uintptr_t>(s),
+                   FL_ARG_POINTER | FL_ARG_STRING | (static_cast<uint32_t>(len) & FL_ARG_SIZE), FL_SOURCE_STRING);
+      return 1;
+    }
+    case LUA_TVECTOR: {
+      lua_Float4 v;
+      int variant = lua_tovector(L, idx, V_NONUMBER, &v);
+      uint32_t n = (variant == LUA_VVECTOR2) ? 2 : (variant == LUA_VVECTOR3) ? 3 : 4;
+      slot = fl_nativereserve(call, n);
+      if (slot < 0)
+        return 0;
+      const float components[4] = {v.x, v.y, v.z, v.w};
+      for (uint32_t i = 0; i < n; i++)
+        fl_nativeset(call, slot + static_cast<int>(i), fl_floatbits(components[i]), 0, FL_SOURCE_VECTOR);
+      return 1;
+    }
+    case LUA_TTABLE:
+      return fl_nativetable(L, call, idx);
+    case LUA_TLIGHTUSERDATA:
+      return fl_nativemarker(call, lua_touserdata(L, idx));
+    default:
+      snprintf(fl_nativeerror, sizeof(fl_nativeerror), "invalid lua type: %s", lua_typename(L, type));
+      return fl_nativefail(call, fl_nativeerror);
+  }
+}
+
+/*
+** Marshals the arguments from `first` up and returns what host function
+** `invoker` returns for the call. Marshalling errors go to the host too, which
+** reports them the way FiveM reports native errors.
+*/
+static int fl_invoke(lua_State *L, uint64_t hash, int first, int invoker) {
+  FLNativeCall call;
+  call.hash = hash;
+  memset(call.results, 0, sizeof(call.results));
+  call.retvals[0] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(call.results));
+  call.rettypes[0] = FL_META_MAX;
+  call.nargs = 0;
+  call.nretvals = 1;
+  call.nbuffers = 0;
+  call.error = NULL;
+  int top = lua_gettop(L);
+  for (int i = first; i <= top; i++) {
+    if (!fl_nativearg(L, &call, i))
+      break;
+  }
+  luaL_checkstack(L, 2, NULL);
+  int base = lua_gettop(L);
+  lua_pushvalue(L, invoker);
+  lua_pushinteger(L, static_cast<lua_Integer>(reinterpret_cast<uintptr_t>(&call)));
+  lua_call(L, 1, LUA_MULTRET);
+  return lua_gettop(L) - base;
+}
+
+/* Citizen.InvokeNative(hash, ...); upvalue 1 is the invoker. */
+static int fl_invokenative(lua_State *L) {
+  return fl_invoke(L, static_cast<uint64_t>(lua_tointeger(L, 1)), 2, lua_upvalueindex(1));
+}
+
+/* A function from Citizen.GetNative; upvalue 1 is the hash and upvalue 2 the invoker. */
+static int fl_nativehandler(lua_State *L) {
+  return fl_invoke(L, static_cast<uint64_t>(lua_tointeger(L, lua_upvalueindex(1))), 1, lua_upvalueindex(2));
+}
+
+/* FiveM's HashString: joaat up to the first NUL, with ASCII lowercased and chars signed. */
+static uint32_t fl_hashstring(const char *s) {
+  uint32_t hash = 0;
+  for (; *s != '\0'; s++) {
+    signed char c = static_cast<signed char>(*s);
+    if (c >= 'A' && c <= 'Z')
+      c = static_cast<signed char>(c - 'A' + 'a');
+    hash += static_cast<uint32_t>(static_cast<int32_t>(c));
+    hash += hash << 10;
+    hash ^= hash >> 6;
+  }
+  hash += hash << 3;
+  hash ^= hash >> 11;
+  hash += hash << 15;
+  return hash;
+}
+
+#define FL_GET_HASH_KEY UINT64_C(0xD24D37CC275948CC)
+
+/* The function Citizen.GetNative returns for GET_HASH_KEY, which hashes without invoking the native. */
+static int fl_gethashkey(lua_State *L) {
+  if (lua_isnil(L, 1) || lua_type(L, 1) == LUA_TNUMBER) {
+    lua_pushinteger(L, 0);
+    return 1;
+  }
+  const char *s = luaL_checkstring(L, 1);
+  lua_pushinteger(L, static_cast<lua_Integer>(static_cast<int32_t>(fl_hashstring(s))));
+  return 1;
+}
+
+/* Citizen.GetNative(hash); upvalue 1 is the invoker. */
+static int fl_getnative(lua_State *L) {
+  uint64_t hash = static_cast<uint64_t>(lua_tointeger(L, 1));
+  lua_pushinteger(L, static_cast<lua_Integer>(hash));
+  if (hash == FL_GET_HASH_KEY) {
+    lua_pushcclosure(L, fl_gethashkey, 1);
+  } else {
+    lua_pushvalue(L, lua_upvalueindex(1));
+    lua_pushcclosure(L, fl_nativehandler, 2);
+  }
+  return 1;
+}
+
+/* Citizen.InvokeNative2(handler, ...), deprecated in FiveM; upvalue 1 is the invoker. */
+static int fl_invokenative2(lua_State *L) {
+  luaL_argcheck(L, lua_getupvalue(L, 1, 1) != NULL, 1, "invalid native handler");
+  uint64_t hash = static_cast<uint64_t>(luaL_checkinteger(L, -1));
+  lua_pop(L, 1);
+  return fl_invoke(L, hash, 2, lua_upvalueindex(1));
+}
+
+template <int field>
+static int fl_metafield(lua_State *L) {
+  lua_pushlightuserdata(L, &fl_metafields[field]);
+  return 1;
+}
+
+static FLPointerField *fl_pointerfield(int type, uint64_t value) {
+  FLPointerField *field = &fl_pointerfields[fl_nextpointerfield];
+  fl_nextpointerfield = (fl_nextpointerfield + 1) % FL_POINTER_FIELDS;
+  field->type = static_cast<uint8_t>(type);
+  for (uint64_t &word : field->value)
+    word = value;
+  return field;
+}
+
+/* Values that are no number, such as an accidental _r marker, initialize to 0. */
+static bool fl_pointerinit(lua_State *L) {
+  int type = lua_type(L, 1);
+  return type != LUA_TNIL && type != LUA_TLIGHTUSERDATA && type != LUA_TUSERDATA;
+}
+
+static int fl_pointervalueintinitialized(lua_State *L) {
+  uint64_t value = fl_pointerinit(L) ? static_cast<uint64_t>(luaL_checkinteger(L, 1)) : 0;
+  lua_pushlightuserdata(L, fl_pointerfield(FL_META_POINTER_INT, value));
+  return 1;
+}
+
+/*
+** FiveM checks the number but stores 0: it reinterprets the variable that
+** holds the result instead of the converted float. Scripts see that, so this
+** does the same.
+*/
+static int fl_pointervaluefloatinitialized(lua_State *L) {
+  if (fl_pointerinit(L))
+    luaL_checknumber(L, 1);
+  lua_pushlightuserdata(L, fl_pointerfield(FL_META_POINTER_FLOAT, 0));
+  return 1;
+}
+
+static int fl_awaitsentinel_k(lua_State *L) {
+  lua_pushlightuserdata(L, &fl_awaitsentinel);
+  return 1;
+}
+
+static int fl_noop(lua_State *L) {
+  (void)L;
+  return 0;
+}
+
+/* C functions the host can push by number, after the upvalues they take. */
+enum {
+  FL_CFUNC_REQUIRE = 1,
+  FL_CFUNC_INVOKE_NATIVE,  /* upvalue: the invoker */
+  FL_CFUNC_GET_NATIVE,  /* upvalue: the invoker */
+  FL_CFUNC_INVOKE_NATIVE2,  /* upvalue: the invoker */
+  FL_CFUNC_POINTER_VALUE_INT,
+  FL_CFUNC_POINTER_VALUE_FLOAT,
+  FL_CFUNC_POINTER_VALUE_VECTOR,
+  FL_CFUNC_RETURN_RESULT_ANYWAY,
+  FL_CFUNC_RESULT_AS_INTEGER,
+  FL_CFUNC_RESULT_AS_LONG,
+  FL_CFUNC_RESULT_AS_FLOAT,
+  FL_CFUNC_RESULT_AS_STRING,
+  FL_CFUNC_RESULT_AS_VECTOR,
+  FL_CFUNC_RESULT_AS_OBJECT,  /* the marker; Citizen.ResultAsObject itself does nothing */
+  FL_CFUNC_POINTER_VALUE_INT_INITIALIZED,
+  FL_CFUNC_POINTER_VALUE_FLOAT_INITIALIZED,
+  FL_CFUNC_AWAIT_SENTINEL,
+  FL_CFUNC_NOOP,
+  FL_CFUNC_COUNT
+};
+
+static const lua_CFunction fl_cfunctions[] = {
+  NULL,
+  fl_require,
+  fl_invokenative,
+  fl_getnative,
+  fl_invokenative2,
+  fl_metafield<FL_META_POINTER_INT>,
+  fl_metafield<FL_META_POINTER_FLOAT>,
+  fl_metafield<FL_META_POINTER_VECTOR>,
+  fl_metafield<FL_META_RETURN_ANYWAY>,
+  fl_metafield<FL_META_RESULT_INT>,
+  fl_metafield<FL_META_RESULT_LONG>,
+  fl_metafield<FL_META_RESULT_FLOAT>,
+  fl_metafield<FL_META_RESULT_STRING>,
+  fl_metafield<FL_META_RESULT_VECTOR>,
+  fl_metafield<FL_META_RESULT_OBJECT>,
+  fl_pointervalueintinitialized,
+  fl_pointervaluefloatinitialized,
+  fl_awaitsentinel_k,
+  fl_noop,
+};
+
+static_assert(sizeof(fl_cfunctions) / sizeof(fl_cfunctions[0]) == FL_CFUNC_COUNT, "one C function per number");
 
 /* }====================================================== */
 
@@ -380,15 +830,14 @@ EMSCRIPTEN_KEEPALIVE void fl_pushhostfunction(lua_State *L, int fn) {
   lua_pushcclosure(L, fl_hostfunction, 1);
 }
 
-EMSCRIPTEN_KEEPALIVE void fl_pushcfunction(lua_State *L, int which) {
+/* Pushes C function `which`, closing over the `nup` values on top of the stack. */
+EMSCRIPTEN_KEEPALIVE void fl_pushcfunction(lua_State *L, int which, int nup) {
   luaL_checkstack(L, 1, NULL);
-  switch (which) {
-    case FL_CFUNC_REQUIRE:
-      lua_pushcfunction(L, fl_require);
-      break;
-    default:
-      lua_pushnil(L);
-      break;
+  if (which > 0 && which < FL_CFUNC_COUNT) {
+    lua_pushcclosure(L, fl_cfunctions[which], nup);
+  } else {
+    lua_pop(L, nup);
+    lua_pushnil(L);
   }
 }
 

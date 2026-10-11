@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { LuaError, LuaRef, LuaVector } from '../../src/core/lua/index.ts'
+import { LuaFloat, LuaError, LuaRef, LuaVector } from '../../src/core/lua/index.ts'
 import { createRuntime, thrown } from './helpers.ts'
 
 describe('LuaState', () => {
@@ -40,6 +40,17 @@ describe('LuaState', () => {
       2 ** 60,
     )
     expect(types).toBe('integer float integer float float')
+  })
+
+  it('pushes integral numbers as floats when asked to', async () => {
+    const lua = (await createRuntime()).newState()
+    const [types] = lua.run(
+      `local a, b = ... return math.type(a) .. ' ' .. tostring(b)`,
+      '=test',
+      new LuaFloat(2),
+      new LuaFloat(-0.5),
+    )
+    expect(types).toBe('float -0.5')
   })
 
   it('passes strings, bytes, vectors and nil into Lua', async () => {

@@ -35,7 +35,7 @@ export interface CfxLuaExports {
   fl_pushlstring(L: Ptr, s: Ptr, len: number): void
   fl_pushvector(L: Ptr, kind: number, x: number, y: number, z: number, w: number): void
   fl_pushhostfunction(L: Ptr, fn: number): void
-  fl_pushcfunction(L: Ptr, which: number): void
+  fl_pushcfunction(L: Ptr, which: number, nup: number): void
   fl_pushglobaltable(L: Ptr): void
 
   fl_toboolean(L: Ptr, idx: number): number
@@ -115,8 +115,81 @@ export const FIVEM_LIBS =
   LuaLib.msgpack |
   LuaLib.json
 
-/** C functions fl_pushcfunction can push. */
-export const CFUNC_REQUIRE = 1
+/** C functions fl_pushcfunction can push, after the upvalues they take. */
+export const CFunction = {
+  require: 1,
+  /** Citizen.InvokeNative. Upvalue: the invoker host function. */
+  invokeNative: 2,
+  /** Citizen.GetNative. Upvalue: the invoker host function. */
+  getNative: 3,
+  /** Citizen.InvokeNative2. Upvalue: the invoker host function. */
+  invokeNative2: 4,
+  pointerValueInt: 5,
+  pointerValueFloat: 6,
+  pointerValueVector: 7,
+  returnResultAnyway: 8,
+  resultAsInteger: 9,
+  resultAsLong: 10,
+  resultAsFloat: 11,
+  resultAsString: 12,
+  resultAsVector: 13,
+  /** The marker that Citizen.ResultAsObject2 returns. */
+  resultAsObject: 14,
+  pointerValueIntInitialized: 15,
+  pointerValueFloatInitialized: 16,
+  awaitSentinel: 17,
+  noop: 18,
+} as const
+
+/** How to read a native result, in the order of FiveM's fx::invoker::MetaField. */
+export const MetaField = {
+  pointerValueInt: 0,
+  pointerValueFloat: 1,
+  pointerValueVector: 2,
+  returnResultAnyway: 3,
+  resultAsInteger: 4,
+  resultAsLong: 5,
+  resultAsFloat: 6,
+  resultAsString: 7,
+  resultAsVector: 8,
+  resultAsObject: 9,
+  /** No marker chose: read the primary result as FiveM does by default. */
+  none: 10,
+} as const
+
+/** Offsets in FLNativeCall, the marshalled native call that native/fivelab.cpp hands to the invoker. */
+export const NativeCallLayout = {
+  hash: 0,
+  arguments: 8,
+  results: 264,
+  types: 680,
+  retvals: 808,
+  rettypes: 872,
+  sources: 888,
+  nargs: 920,
+  nretvals: 924,
+  error: 932,
+} as const
+
+/** Native argument slots and out-pointer results a call can hold. */
+export const NATIVE_ARGS = 32
+export const NATIVE_RETVALS = 16
+
+/** Bits of an argument's type word. The rest is the size of what a pointer points to. */
+export const ARG_POINTER = 0x8000_0000
+export const ARG_STRING = 0x4000_0000
+export const ARG_SIZE = 0x1fff_ffff
+
+/** The kind of Lua value an argument slot came from. */
+export const ArgSource = {
+  nil: 0,
+  boolean: 1,
+  integer: 2,
+  float: 3,
+  string: 4,
+  vector: 5,
+  pointer: 6,
+} as const
 
 /** Vector kinds used by fl_pushvector and fl_tovector. */
 export const VECTOR_KIND = { vector2: 2, vector3: 3, vector4: 4, quat: 5 } as const

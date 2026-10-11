@@ -1,4 +1,4 @@
-export { FIVEM_LIBS, LuaLib } from './abi.ts'
+export { CFunction, FIVEM_LIBS, LuaLib } from './abi.ts'
 export { LuaError, LuaFatalError, type LuaErrorKind } from './errors.ts'
 export {
   LuaRuntime,
@@ -18,4 +18,4 @@ export {
   type LuaValue,
   type WatchdogOptions,
 } from './state.ts'
-export { LuaVector, type LuaVectorType } from './values.ts'
+export { LuaFloat, LuaVector, type LuaVectorType } from './values.ts'
