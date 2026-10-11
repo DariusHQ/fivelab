@@ -11,5 +11,10 @@ trim_trailing_whitespace = true
 [*.lua]
 indent_size = 4
 
+# Vendored files keep their upstream formatting.
+[src/core/scripting/lua/vendor/*.lua]
+indent_style = unset
+indent_size = unset
+
 [*.md]
 trim_trailing_whitespace = false
