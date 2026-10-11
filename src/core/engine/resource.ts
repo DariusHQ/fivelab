@@ -1,5 +1,6 @@
 import { ScriptRuntime, type ScriptHost } from '../scripting/runtime.ts'
 import { NativeContext } from './context.ts'
+import { Hook } from './hook.ts'
 import type { ResourceManager } from './manager.ts'
 
 /** The states of a resource, named as GetResourceState names them. */
@@ -27,6 +28,12 @@ export class Resource {
    * them for as long as the resource exists, across restarts.
    */
   readonly handledEvents = new Set<string>()
+  /** Runs when the resource starts. A callback that returns false keeps it from starting. */
+  readonly onBeforeStart = new Hook()
+  /** Runs when the resource is starting, after onBeforeStart. A callback that returns false fails the start. */
+  readonly onStart = new Hook()
+  /** Runs when the resource stops. */
+  readonly onStop = new Hook()
   readonly #files: ReadonlyMap<string, string | Uint8Array>
   #state: ResourceState = 'stopped'
   #runtime: ScriptRuntime | null = null
@@ -41,6 +48,10 @@ export class Resource {
     this.name = name
     this.metadata = definition.metadata
     this.#files = new Map(Object.entries(definition.files))
+    // FiveM's event component connects to a resource's hooks before its scripting component does.
+    manager.events.attach(this)
+    this.onStart.connect(() => this.#createRuntime())
+    this.onStop.connect(() => this.#destroyRuntime())
   }
 
   get state(): ResourceState {
@@ -66,20 +77,31 @@ export class Resource {
     return this.#files.get(path)
   }
 
-  /** Starts the resource. Returns whether it started; one that is started already counts. */
+  /**
+   * Starts the resource as FiveM does, and returns whether it started; one
+   * that is started already counts. The resource is starting while its hooks
+   * run, and stopped again if one of them returns false, unless it got
+   * started meanwhile.
+   */
   start(): boolean {
-    if (this.#state === 'started') return true
-    this.#state = 'starting'
-    this.#createRuntime()
+    if (this.#state !== 'started') {
+      // A resource started while it starts skips onBeforeStart, as in FiveM.
+      if (this.#state !== 'starting') {
+        this.#state = 'starting'
+        if (!this.onBeforeStart.run()) return this.#failStart()
+      }
+      if (!this.onStart.run()) return this.#failStart()
+    }
     this.#state = 'started'
     return true
   }
 
-  /** Stops the resource, closing its runtime once no call into it is running. */
+  /** Stops the resource as FiveM does. Its runtime closes once no call into it is running. */
   stop(): boolean {
-    if (this.#state === 'stopped') return true
-    this.#destroyRuntime()
-    this.#state = 'stopped'
+    if (this.#state !== 'stopped') {
+      if (!this.onStop.run()) return false
+      this.#state = 'stopped'
+    }
     return true
   }
 
@@ -119,12 +141,25 @@ export class Resource {
     }
   }
 
+  /** Ends a start that a hook failed, as FiveM does. */
+  #failStart(): false {
+    if (this.#state !== 'started') this.#state = 'stopped'
+    return false
+  }
+
   /**
    * Creates the runtime and loads the scripts into it, as FiveM does for a
    * resource with scripts that its Lua runtime handles: those with ".lua" in
    * their name.
    */
   #createRuntime(): void {
+    if (this.#runtime !== null) {
+      this.manager.output.diagnose(
+        this.name,
+        `${this.name} was started while it started. FiveM would then create another runtime for it and load its scripts again in both runtimes, which FiveLab does not emulate: it keeps the runtime it has.`,
+      )
+      return
+    }
     const scripts = this.scripts
     for (const path of scripts) {
       if (!path.includes('.lua')) {

@@ -97,6 +97,14 @@ export class ResourceManager {
   addResource(name: string, definition: ResourceDefinition): Resource {
     if (this.#resources.has(name)) throw new Error(`There is a resource named ${name} already`)
     const resource = new Resource(this, name, definition)
+    if (this.side === 'server') {
+      // FiveM's server reports the resources it starts and stops.
+      resource.onStart.connect(
+        () => this.log('resources', `Started resource ${name}\n`),
+        99_999_999,
+      )
+      resource.onStop.connect(() => this.log('resources', `Stopping resource ${name}\n`), -1000)
+    }
     this.#resources.set(name, resource)
     return resource
   }

@@ -1,4 +1,5 @@
 import type { ResourceManager } from './manager.ts'
+import { pack } from './msgpack.ts'
 import type { Resource } from './resource.ts'
 
 /** An event to trigger at the next tick. */
@@ -32,6 +33,32 @@ export class EventManager {
 
   constructor(manager: ResourceManager) {
     this.#manager = manager
+  }
+
+  /**
+   * Triggers the events of a resource's start and stop with its name, as
+   * FiveM's resource event component does:
+   *
+   * - onResourceStarting before the resource starts. Canceling it keeps the
+   *   resource from starting.
+   * - onResourceStart once its scripts loaded.
+   * - onResourceStop before its runtime closes.
+   * - on<Side>ResourceStart and on<Side>ResourceStop, queued as it starts and
+   *   stops, so that they come at the next tick, when a stopped resource is
+   *   no longer there to get its own.
+   */
+  attach(resource: Resource): void {
+    const side = this.#manager.side === 'server' ? 'Server' : 'Client'
+    const args = () => pack([resource.name])
+    resource.onBeforeStart.connect(() => this.trigger('onResourceStarting', args()), -10_000)
+    resource.onStart.connect(() => this.queue(`on${side}ResourceStart`, args()))
+    resource.onStart.connect(() => {
+      this.trigger('onResourceStart', args())
+    }, 99_999)
+    resource.onStop.connect(() => this.queue(`on${side}ResourceStop`, args()))
+    resource.onStop.connect(() => {
+      this.trigger('onResourceStop', args())
+    }, -99_999)
   }
 
   /** Registers a resource for an event, once, as RegisterResourceAsEventHandler does. */

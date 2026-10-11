@@ -7,10 +7,14 @@ const FIVE = new Uint8Array([0x91, 0x05])
 const NIL = new Uint8Array([0xc0])
 const INVALID = new Uint8Array([0xc1])
 
-/** Starts a resource running `source` and returns what its scripts printed. */
+/** Starts a resource running `source` and returns the lines written but those of every start. */
 function start(proc: TestProcess, name: string, source: string): string[] {
   proc.add(name, { 'main.lua': source }).start()
-  return proc.take().filter((line) => !line.startsWith('[citizen-scripting-core] Creating'))
+  const starting = [
+    `[citizen-scripting-core] Creating script environments for ${name}`,
+    `[resources] Started resource ${name}`,
+  ]
+  return proc.take().filter((line) => !starting.includes(line))
 }
 
 describe('TriggerEvent', () => {
@@ -250,7 +254,12 @@ AddEventHandler('x', function() print('c') end)`,
     proc.manager.events.trigger('x', NIL)
     b.stop()
     proc.manager.events.trigger('x', NIL)
-    expect(proc.take()).toEqual(['[script:b] b', '[script:a] a', '[script:a] a'])
+    expect(proc.take()).toEqual([
+      '[script:b] b',
+      '[script:a] a',
+      '[resources] Stopping resource b',
+      '[script:a] a',
+    ])
   })
 
   it('name the resource that triggered them as the invoking one', async () => {

@@ -45,6 +45,7 @@ describe('resources', () => {
       "[script:a] Error parsing script @a/broken.lua in resource a: @a/broken.lua:1: <name> expected near '='",
       '[citizen-scripting-core] Failed to load script broken.lua.',
       '[script:a] ok',
+      '[resources] Started resource a',
     ])
   })
 
@@ -53,7 +54,7 @@ describe('resources', () => {
     const res = proc.add('a', { 'server.js': `console.log('js')` })
     res.start()
     expect(res.runtime).toBe(null)
-    expect(proc.take()).toEqual([])
+    expect(proc.take()).toEqual(['[resources] Started resource a'])
     expect(proc.diagnostics).toEqual(['a: FiveLab runs only Lua scripts, so it skips server.js.'])
   })
 
@@ -70,7 +71,7 @@ describe('resources', () => {
     expect(res.state).toBe('stopped')
     expect(res.runtime).toBe(null)
     proc.tickAt(1)
-    expect(proc.take()).toEqual([])
+    expect(proc.take()).toEqual(['[resources] Stopping resource a'])
   })
 
   it('close their runtime only once the call that stopped them returns', async () => {
@@ -94,8 +95,112 @@ CreateThread(function() print('never runs') end)`,
     proc.tickAt(0)
     expect(proc.take()).toEqual([
       '[citizen-scripting-core] Creating script environments for a',
+      '[resources] Stopping resource a',
       '[script:a] still running\ta',
+      '[resources] Started resource a',
     ])
+  })
+
+  it('keep their runtime when they are started while they start, which FiveM does not handle', async () => {
+    const start = defineNative(
+      { name: 'START_THIS_RESOURCE', result: 'void', params: [] },
+      (ctx: NativeContext) => {
+        ctx.resource.start()
+      },
+    )
+    const proc = await createProcess({ natives: [start] })
+    const res = proc.add('a', { 'main.lua': `StartThisResource()\nprint('loaded once')` })
+    expect(res.start()).toBe(true)
+    expect(res.state).toBe('started')
+    expect(proc.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      '[resources] Started resource a',
+      '[script:a] loaded once',
+      '[resources] Started resource a',
+    ])
+    expect(proc.diagnostics).toEqual([
+      'a: a was started while it started. FiveM would then create another runtime for it and load its scripts again in both runtimes, which FiveLab does not emulate: it keeps the runtime it has.',
+    ])
+  })
+})
+
+describe('starting and stopping', () => {
+  /** A script that prints the events of starts and stops of both sides, with the resource they are about. */
+  const watch = `for _, name in ipairs({
+    'onResourceStarting', 'onResourceStart', 'onResourceStop',
+    'onServerResourceStart', 'onServerResourceStop', 'onClientResourceStart', 'onClientResourceStop',
+}) do
+    AddEventHandler(name, function(resource) print(name, resource) end)
+end`
+
+  it('trigger events, as FiveM does', async () => {
+    const proc = await createProcess()
+    proc.add('watcher', { 'main.lua': watch }).start()
+    proc.tickAt(0)
+    const a = proc.add('a', { 'main.lua': `print('loading')\n${watch}` })
+    proc.take()
+    expect(a.start()).toBe(true)
+    // Each event goes to the resources that registered for it newest first.
+    expect(proc.take()).toEqual([
+      '[script:watcher] onResourceStarting\ta',
+      '[citizen-scripting-core] Creating script environments for a',
+      '[script:a] loading',
+      '[script:a] onResourceStart\ta',
+      '[script:watcher] onResourceStart\ta',
+      '[resources] Started resource a',
+    ])
+    proc.tickAt(1)
+    expect(proc.take()).toEqual([
+      '[script:a] onServerResourceStart\ta',
+      '[script:watcher] onServerResourceStart\ta',
+    ])
+    expect(a.stop()).toBe(true)
+    expect(proc.take()).toEqual([
+      '[script:a] onResourceStop\ta',
+      '[script:watcher] onResourceStop\ta',
+      '[resources] Stopping resource a',
+    ])
+    proc.tickAt(2)
+    expect(proc.take()).toEqual(['[script:watcher] onServerResourceStop\ta'])
+  })
+
+  it('trigger the events of clients on clients, for resources without scripts too', async () => {
+    const proc = await createProcess({ side: 'client' })
+    proc.add('watcher', { 'main.lua': watch }).start()
+    proc.tickAt(0)
+    const a = proc.add('a', {})
+    proc.take()
+    a.start()
+    proc.tickAt(1)
+    a.stop()
+    proc.tickAt(2)
+    expect(proc.take()).toEqual([
+      '[script:watcher] onResourceStarting\ta',
+      '[script:watcher] onResourceStart\ta',
+      '[script:watcher] onClientResourceStart\ta',
+      '[script:watcher] onResourceStop\ta',
+      '[script:watcher] onClientResourceStop\ta',
+    ])
+  })
+
+  it('keep a resource from starting when onResourceStarting is canceled', async () => {
+    const proc = await createProcess()
+    proc
+      .add('guard', {
+        'main.lua': `AddEventHandler('onResourceStarting', function(resource)
+    if resource == 'a' then CancelEvent() end
+end)
+AddEventHandler('onServerResourceStart', function(resource) print('started', resource) end)`,
+      })
+      .start()
+    proc.tickAt(0)
+    const a = proc.add('a', { 'main.lua': `print('never loads')` })
+    proc.take()
+    expect(a.start()).toBe(false)
+    expect(a.state).toBe('stopped')
+    expect(a.runtime).toBe(null)
+    proc.tickAt(1)
+    expect(proc.take()).toEqual([])
   })
 })
 
@@ -133,6 +238,7 @@ CreateThread(function() print(GetCurrentResourceName(), GetInvokingResource()) e
     expect(proc.take()).toEqual([
       '[citizen-scripting-core] Creating script environments for a',
       '[script:a] a\tnil',
+      '[resources] Started resource a',
       '[script:a] a\tnil',
     ])
   })
