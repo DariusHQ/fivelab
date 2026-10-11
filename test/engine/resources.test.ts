@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { ManifestError, type NativeContext } from '../../src/core/engine/index.ts'
-import { defineNative } from '../../src/core/natives/index.ts'
+import { defineNative, hashString } from '../../src/core/natives/index.ts'
 import { createProcess } from './helpers.ts'
 
 describe('resources', () => {
@@ -530,6 +530,37 @@ CreateThread(function() print(GetCurrentResourceName(), GetInvokingResource()) e
       proc.add('a', { 'main.lua': `print(GetGameTimer(), math.type(GetGameTimer()))` }).start()
       expect(proc.take()[1]).toBe(`[script:a] ${timer}\tinteger`)
     }
+  })
+
+  it('hash names as FiveM does, with ASCII letters lowercased', async () => {
+    const client = await createProcess({ side: 'client' })
+    client
+      .add('a', {
+        'main.lua': `print(GetHashKey('adder'), GetHashKey('ADDER'), GetHashKey('Ä'), GetHashKey(nil))
+print(Citizen.InvokeNative(0xD24D37CC275948CC, 'ADDER', Citizen.ResultAsInteger()))
+print(Citizen.InvokeNative(0xD24D37CC275948CC, nil, Citizen.ResultAsInteger()))`,
+      })
+      .start()
+    expect(client.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      `[script:a] -1216765807\t-1216765807\t${hashString('Ä') | 0}\t0`,
+      '[script:a] -1216765807',
+      '[script:a] 0',
+    ])
+    const server = await createProcess()
+    server
+      .add('a', {
+        'main.lua': `print(GetHashKey('adder'), GetHashKey('ADDER'), GetHashKey('a\\0b') == GetHashKey('a'))
+print(pcall(GetHashKey, nil))`,
+      })
+      .start()
+    expect(server.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      '[script:a] -1216765807\t-1216765807\ttrue',
+      '[citizen-scripting-core] script error in native 0000000098eff6f1: Argument at index 0 was null.',
+      '[script:a] false\tnative 0000000098eff6f1: Argument at index 0 was null.',
+      '[resources] Started resource a',
+    ])
   })
 })
 
