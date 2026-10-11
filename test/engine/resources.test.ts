@@ -535,6 +535,8 @@ print(GetNumResources(), GetResourceByFindIndex(1), GetResourceByFindIndex(2))`,
 
   it('give the entries of manifests by key, in order', async () => {
     const proc = await createProcess()
+    proc.add('x', {})
+    proc.add('y', {})
     proc
       .add(
         'a',
@@ -554,6 +556,8 @@ print(pcall(GetNumResourceMetadata, 'a', nil))`,
       )
       .start()
     expect(proc.take()).toEqual([
+      '[resources] Started resource x',
+      '[resources] Started resource y',
       '[citizen-scripting-core] Creating script environments for a',
       '[script:a] 2\tx\ty',
       '[script:a] nil\tnil',

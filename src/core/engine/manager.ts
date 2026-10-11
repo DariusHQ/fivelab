@@ -9,6 +9,7 @@ import {
 import { CLOCK_START } from '../scripting/runtime.ts'
 import { Constraints, DEFAULT_GAME_BUILD, FIVEM_BUILD, parseGameBuild } from './constraints.ts'
 import type { NativeContext } from './context.ts'
+import { Dependencies } from './dependencies.ts'
 import { EventManager } from './events.ts'
 import { INT32_MIN } from './hook.ts'
 import { isFxVersionAtLeast } from './manifest.ts'
@@ -57,6 +58,7 @@ export class ResourceManager {
   readonly events = new EventManager(this)
   /** What dependencies such as /server:5181 test, which only servers enforce. */
   readonly constraints = new Constraints()
+  readonly #dependencies = new Dependencies(this)
   /**
    * The resources whose runtimes are running, the innermost call last, as
    * FiveM keeps its runtime stack.
@@ -111,6 +113,7 @@ export class ResourceManager {
   addResource(name: string, definition: ResourceDefinition): Resource {
     if (this.#resources.has(name)) throw new Error(`There is a resource named ${name} already`)
     const resource = new Resource(this, name, definition)
+    this.#dependencies.attach(resource)
     if (this.side === 'server') {
       // FiveM's server checks manifests before anything else of a start, and
       // reports the resources it starts and stops.

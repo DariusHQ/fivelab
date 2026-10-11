@@ -164,7 +164,7 @@ function directoryOf(path: string): string {
 }
 
 /** Orders strings as C++ orders their UTF-8 bytes, which is by code point. */
-function compareUtf8(a: string, b: string): number {
+export function compareUtf8(a: string, b: string): number {
   const length = Math.min(a.length, b.length)
   for (let i = 0; i < length; i++) {
     const x = a.codePointAt(i)!
