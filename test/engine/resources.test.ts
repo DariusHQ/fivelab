@@ -127,6 +127,79 @@ shared_scripts {
     ])
   })
 
+  it("have on clients only the files that FiveM's server sends them", async () => {
+    const proc = await createProcess({ side: 'client' })
+    proc.add('lib', {
+      'fxmanifest.lua': `fx_version 'cerulean'
+game 'gta5'
+server_script 'server.lua'
+client_script 'client.lua'`,
+      'server.lua': `print('lib server')`,
+      'client.lua': `print('lib client')`,
+    })
+    const a = proc.add('a', {
+      'fxmanifest.lua': `fx_version 'cerulean'
+game 'gta5'
+shared_script 'shared.lua'
+client_scripts { 'client.lua', '@lib/server.lua', '@lib/client.lua' }
+server_script 'server.lua'
+files { 'html/*', 'stream/**' }`,
+      'shared.lua': `print('shared')`,
+      'client.lua': `print('client')`,
+      'server.lua': `print('server')`,
+      'config.json': '{}',
+      'html/index.html': '<html></html>',
+      'stream/car.ydr': '',
+      'stream/car.ytyp': '',
+      'stream/props.v1/prop.ydr': '',
+    })
+    expect(a.path).toBe('resources:/a/')
+    const files = [
+      'fxmanifest.lua',
+      'shared.lua',
+      'client.lua',
+      'server.lua',
+      'config.json',
+      'html/index.html',
+      'stream/car.ydr',
+      'stream/car.ytyp',
+      'stream/props.v1/prop.ydr',
+    ]
+    expect(files.filter((file) => a.file(file) !== undefined)).toEqual([
+      'fxmanifest.lua',
+      'shared.lua',
+      'client.lua',
+      'html/index.html',
+      // The game streams files such as stream/car.ydr, which servers do not send.
+      'stream/car.ytyp',
+      // FiveM's server looks at what follows the first dot of a path.
+      'stream/props.v1/prop.ydr',
+    ])
+    a.start()
+    expect(proc.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      '[script:a] shared',
+      '[script:a] client',
+      '[citizen-scripting-core] Failed to load script @lib/server.lua.',
+      '[script:a] lib client',
+    ])
+  })
+
+  it('read their manifest on clients from where FiveM mounts them', async () => {
+    const proc = await createProcess({ side: 'client' })
+    const a = proc.add('a', { 'fxmanifest.lua': `fx_version 'cerulean'` })
+    expect(a.metadata[0]).toEqual([
+      'fx_version',
+      'cerulean',
+      { file: 'resources:/a///fxmanifest.lua', line: 1 },
+    ])
+    expect(() => proc.add('b', { 'fxmanifest.lua': `fx_version = = 'cerulean'` })).toThrow(
+      new ManifestError(
+        "Could not parse resource metadata file resources:/b//fxmanifest.lua: /fxmanifest.lua:1: unexpected symbol near '='",
+      ),
+    )
+  })
+
   it('skip scripts they do not have, report those that do not load, and go on with the others', async () => {
     const proc = await createProcess()
     proc

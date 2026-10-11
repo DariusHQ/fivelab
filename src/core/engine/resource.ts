@@ -10,14 +10,21 @@ export type ResourceState = 'uninitialized' | 'stopped' | 'starting' | 'started'
 
 /** What a resource is made of. */
 export interface ResourceDefinition {
-  /** The files of the resource by path, such as client.lua. */
+  /**
+   * The files of the resource by path, such as client.lua. On clients, the
+   * resource keeps only those that FiveM's server sends them.
+   */
   readonly files: Readonly<Record<string, string | Uint8Array>>
   /**
    * The entries of its manifest in order, such as ['client_script', 'client.lua'].
    * Without them, the resource reads its fxmanifest.lua or __resource.lua.
    */
   readonly metadata?: readonly MetadataEntry[]
-  /** Where the resource is, as FiveM's messages name it. Defaults to resources/<name>. */
+  /**
+   * Where the resource is, as FiveM's messages name it. Defaults to
+   * resources/<name> on servers, and on clients to resources:/<name>/, where
+   * FiveM mounts what servers send.
+   */
   readonly path?: string
 }
 
@@ -64,10 +71,17 @@ export class Resource {
   constructor(manager: ResourceManager, name: string, definition: ResourceDefinition) {
     this.manager = manager
     this.name = name
-    this.path = definition.path ?? `resources/${name}`
-    this.#files = new Map(Object.entries(definition.files))
+    this.path =
+      definition.path ?? (manager.side === 'client' ? `resources:/${name}/` : `resources/${name}`)
+    const files = new Map(Object.entries(definition.files))
     this.metadata =
-      definition.metadata ?? readManifest(manager.lua, this.path, (path) => this.#files.get(path))
+      definition.metadata ?? readManifest(manager.lua, this.path, (path) => files.get(path))
+    if (manager.side === 'client') {
+      const sent = clientFiles(new FileTree(this.path, files.keys()), this.metadata)
+      this.#files = new Map([...files].filter(([path]) => sent.has(path)))
+    } else {
+      this.#files = files
+    }
     // FiveM's event component connects to a resource's hooks before its scripting component does.
     manager.events.attach(this)
     this.onStart.connect(() => this.#createRuntime())
@@ -278,4 +292,34 @@ export class Resource {
     if (this.#context?.runtime !== runtime) this.#context = new NativeContext(runtime, this)
     return this.#context
   }
+}
+
+/**
+ * The files of a resource that FiveM's server sends clients, in its
+ * resource.rpf: its manifest, and the files its file, client_script,
+ * shared_script and map entries glob, but for those in stream/ that the
+ * game streams, which have an extension that starts with .y, other than
+ * .ytyp. Values with @ name files of other resources, which it leaves out.
+ */
+function clientFiles(tree: FileTree, metadata: readonly MetadataEntry[]): Set<string> {
+  const isCfxV2 = metadata.some(([key]) => key === 'is_cfxv2')
+  const files = [isCfxV2 ? 'fxmanifest.lua' : '__resource.lua']
+  for (const key of ['file', 'client_script', 'shared_script', 'map']) {
+    for (const [name, value] of metadata) {
+      if (name !== key) continue
+      for (const file of glob(tree, value).files) if (!file.startsWith('@')) files.push(file)
+    }
+  }
+  return new Set(files.filter((file) => !isStreamed(file)))
+}
+
+/**
+ * Whether FiveM's server leaves a file in stream/ out for clients, by what
+ * follows the first dot of its path, even when that dot is in a directory.
+ */
+function isStreamed(file: string): boolean {
+  const dot = file.indexOf('.')
+  if (!file.startsWith('stream/') || dot === -1) return false
+  const extension = file.slice(dot)
+  return extension[1] === 'y' && extension !== '.ytyp'
 }
