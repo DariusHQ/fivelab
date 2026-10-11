@@ -14,7 +14,7 @@
     - Citizen.Await(promise) suspends the current thread until the promise
       settles, and resumes it from within the call that settles it.
 
-    An error in a thread prints SCRIPT ERROR with a stack trace, like FiveM.
+    An error in a thread prints SCRIPT ERROR, like FiveM.
 
     Loaded by the runtime with its host functions and a private table that
     the other FiveLab scripts share.
@@ -25,14 +25,13 @@ local host, fivelab = ...
 local type, error, select, rawget = type, error, select, rawget
 local pcall = pcall
 local math_floor, math_huge = math.floor, math.huge
-local string_format, string_sub = string.format, string.sub
-local table_concat, table_remove = table.concat, table.remove
+local string_format = string.format
+local table_remove = table.remove
 local coroutine_create = coroutine.create
 local coroutine_resume = coroutine.resume
 local coroutine_yield = coroutine.yield
 local coroutine_status = coroutine.status
 local coroutine_close = coroutine.close
-local debug_getinfo = debug.getinfo
 local debug_getmetatable = debug.getmetatable
 
 local gameTimer = host.gameTimer
@@ -42,7 +41,7 @@ local checked = host.checked
 local G = _G
 local Citizen = G.Citizen
 
---[[ Errors and stack traces ]]
+--[[ Errors ]]
 
 -- Describes a thrown value like FiveM does: strings as they are, other values
 -- through __tostring.
@@ -61,34 +60,11 @@ local function errorMessage(err)
     return 'error object is not a string'
 end
 
--- Formats the frames of a coroutine as FiveM does, leaving out C functions
--- and FiveLab's own scripts. Resource files are named "@@resource/file.lua",
--- so their frames read "@resource/file.lua", like their error messages.
-local function stackTrace(co)
-    local lines = {}
-    local level = 0
-    while true do
-        local info = debug_getinfo(co, level, 'Sln')
-        if not info then
-            break
-        end
-        local source = info.source
-        if string_sub(source, 1, 1) ~= '=' and string_sub(source, 1, 10) ~= '@fivelab:/' then
-            lines[#lines + 1] = string_format(
-                '> %s (%s:%d)\n',
-                info.name or '[global chunk]',
-                string_sub(source, 2),
-                info.currentline
-            )
-        end
-        level = level + 1
-    end
-    return table_concat(lines)
-end
-
+-- Reports an error that ended a thread. FiveM follows SCRIPT ERROR with a
+-- stack trace, but since April 2026 it walks no frames of a thread that
+-- failed, so the trace of an error in the resource's own threads is empty.
 local function reportThreadError(co, err)
     trace(string_format('^1SCRIPT ERROR: %s^7\n', errorMessage(err)))
-    trace(stackTrace(co))
     local closed, closeError = coroutine_close(co)
     if not closed and errorMessage(closeError) ~= errorMessage(err) then
         trace(string_format('^1Error while closing to-be-closed variables: %s^7\n', errorMessage(closeError)))

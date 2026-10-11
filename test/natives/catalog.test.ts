@@ -158,7 +158,7 @@ describe('natives FiveLab implements', () => {
     )
   })
 
-  it('appear in stack traces at the lines of FiveM', async () => {
+  it('run at the lines of FiveM', async () => {
     const fail = {
       ...defineNative({ name: 'FAIL', result: 'void', params: [] }, () => {
         throw new NativeError('failed')
@@ -170,11 +170,13 @@ describe('natives FiveLab implements', () => {
       [false, 5],
     ] as const) {
       const res = await createResource({ natives: [fail], client })
-      res.run(`Fail()`)
+      // Level 3 of the handler is the function that called the native's C function.
+      res.run(`xpcall(function() Fail() end, function(err)
+    local caller = debug.getinfo(3, 'Sln')
+    print(err, caller.name, caller.short_src, caller.currentline)
+end)`)
       expect(res.take()).toBe(
-        `^1SCRIPT ERROR: native 00000000${hashString('FAIL').toString(16)}: failed^7\n` +
-          `> Fail (Fail.lua:${line})\n` +
-          '> fn (@test/client.lua:1)\n',
+        `native 00000000${hashString('FAIL').toString(16)}: failed\tFail\tFail.lua\t${line}\n`,
       )
     }
   })

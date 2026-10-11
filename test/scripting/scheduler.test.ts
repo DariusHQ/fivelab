@@ -137,7 +137,7 @@ print(pcall(Citizen.SetTimeout, nil))`)
 })
 
 describe('script errors', () => {
-  it('print SCRIPT ERROR with a stack trace and leave other threads running', async () => {
+  it('print SCRIPT ERROR and leave other threads running', async () => {
     const res = await createResource()
     res.run(`local function explode()
     error('boom')
@@ -149,12 +149,7 @@ CreateThread(function()
     print('still running')
 end)`)
     res.tickAt(0)
-    expect(res.take()).toBe(
-      '^1SCRIPT ERROR: @test/client.lua:2: boom^7\n' +
-        '> explode (@test/client.lua:2)\n' +
-        '> fn (@test/client.lua:5)\n' +
-        'still running\n',
-    )
+    expect(res.take()).toBe('^1SCRIPT ERROR: @test/client.lua:2: boom^7\nstill running\n')
   })
 
   it('stop only the file whose top level fails', async () => {
@@ -167,7 +162,6 @@ missing.field = 1`),
     res.run(`print('next file')`, 'other.lua')
     expect(res.take()).toBe(
       "before\n^1SCRIPT ERROR: @test/client.lua:3: attempt to index a nil value (local 'missing')^7\n" +
-        '> fn (@test/client.lua:3)\n' +
         'next file\n',
     )
   })
@@ -178,8 +172,7 @@ missing.field = 1`),
 CreateThreadNow(function() error(setmetatable({}, {__tostring = function() return 'custom' end})) end)
 CreateThreadNow(function() error(42) end)`)
     expect(res.take()).toBe(
-      '^1SCRIPT ERROR: custom^7\n> fn (@test/client.lua:2)\n' +
-        '^1SCRIPT ERROR: error object is not a string^7\n> fn (@test/client.lua:3)\n',
+      '^1SCRIPT ERROR: custom^7\n^1SCRIPT ERROR: error object is not a string^7\n',
     )
   })
 
@@ -194,8 +187,8 @@ Citizen.CreateThreadNow(function()
     error('boom', 0)
 end)`)
     expect(res.take()).toBe(
-      '^1SCRIPT ERROR: boom^7\n> fn (@test/client.lua:3)\nclosed\n' +
-        '^1SCRIPT ERROR: boom^7\n> fn (@test/client.lua:7)\n' +
+      '^1SCRIPT ERROR: boom^7\nclosed\n' +
+        '^1SCRIPT ERROR: boom^7\n' +
         '^1Error while closing to-be-closed variables: close failed^7\n',
     )
   })
