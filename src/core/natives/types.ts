@@ -138,7 +138,7 @@ type PointeeValue<B extends string> = B extends 'Vector3'
 /** The JavaScript value a native implementation receives for a parameter of type T. */
 export type ArgValue<T extends ParamType> = T extends 'char*' | 'func'
   ? string | null
-  : T extends 'buffer' | 'bytes'
+  : T extends 'buffer' | 'bytes' | 'object'
     ? Uint8Array | null
     : T extends `${infer B}*`
       ? NativePointer<PointeeValue<B>>
@@ -150,9 +150,7 @@ export type ArgValue<T extends ParamType> = T extends 'char*' | 'func'
             ? boolean
             : T extends 'Vector3'
               ? LuaVector
-              : T extends 'object'
-                ? Uint8Array
-                : never
+              : never
 
 /** The JavaScript value a native implementation returns for a result of type T. */
 export type ResultValue<T extends ResultType> = T extends 'void'

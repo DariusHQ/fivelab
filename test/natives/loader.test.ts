@@ -19,7 +19,7 @@ const describeNative = defineNative(
     params: ['char* text', 'Hash model', 'func callback', 'object data', 'int end'],
   },
   (_ctx, text, model, callback, data, end) =>
-    JSON.stringify([text, model, callback, Array.from(data), end]),
+    JSON.stringify([text, model, callback, data && Array.from(data), end]),
 )
 
 const values = defineNative(

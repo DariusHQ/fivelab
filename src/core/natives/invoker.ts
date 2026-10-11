@@ -516,7 +516,7 @@ function decodeArguments<Ctx>(
           Number(uint64(call.args[next * 2]!, call.args[next * 2 + 1]!) & 0xffff_ffffn),
           call.types[slot]! & ARG_SIZE,
         )
-        if (!call.isPointer(slot)) values.push(info.kind === 'buffer' ? null : new Uint8Array(0))
+        if (!call.isPointer(slot)) values.push(null)
         else values.push(lua.heap.slice(low, low + length))
         slot += info.kind === 'object' ? 2 : 1
         break

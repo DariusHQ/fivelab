@@ -228,6 +228,20 @@ print(pcall(Citizen.InvokeNative, 0x2101, Citizen.PointerValueInt()))`,
         'false\tnative 0000000000002101: arg[0]: expected string\n',
     )
   })
+
+  it('give objects as the bytes their length takes, and NULL as null', async () => {
+    const object = defineNative(
+      { name: 'TAKE_OBJECT', hash: 0x2102n, result: 'char*', params: ['object data'] },
+      (_ctx, data) => (data === null ? 'NULL' : `[${data.join(',')}]`),
+    )
+    const { output } = await run(
+      String.raw`print(Citizen.InvokeNative(0x2102, 'a\0bc', 3, Citizen.ResultAsString()))
+print(Citizen.InvokeNative(0x2102, '', 0, Citizen.ResultAsString()))
+print(Citizen.InvokeNative(0x2102, nil, 0, Citizen.ResultAsString()))`,
+      [object],
+    )
+    expect(output).toBe('[97,0,98]\n[]\nNULL\n')
+  })
 })
 
 describe('results', () => {
