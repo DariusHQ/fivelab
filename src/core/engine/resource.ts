@@ -57,7 +57,7 @@ export class Resource {
   readonly onStart = new Hook()
   /** Runs when the resource stops. */
   readonly onStop = new Hook()
-  readonly #files: ReadonlyMap<string, string | Uint8Array>
+  readonly #files: Map<string, string | Uint8Array>
   #tree: FileTree | undefined
   #state: ResourceState = 'stopped'
   #runtime: ScriptRuntime | null = null
@@ -133,6 +133,21 @@ export class Resource {
 
   file(path: string): string | Uint8Array | undefined {
     return this.#files.get(path)
+  }
+
+  /** Writes the file at `path`, creating it or replacing what it had. */
+  writeFile(path: string, data: string | Uint8Array): void {
+    this.#files.set(path, data)
+    this.#tree = undefined
+  }
+
+  /**
+   * Whether the resource has a directory at `path`, or at its root for "".
+   * FiveLab knows only of the directories that have files.
+   */
+  hasDirectory(path: string): boolean {
+    const tree = this.#fileTree()
+    return tree.list(path === '' ? tree.root : `${tree.root}/${path}`) !== undefined
   }
 
   /**

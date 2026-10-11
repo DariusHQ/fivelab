@@ -742,6 +742,81 @@ print(LoadResourceFile('a', 'secret.json'), LoadResourceFile('elsewhere', 'x.txt
     ])
   })
 
+  it('save the files of resources on servers, as FiveM writes them', async () => {
+    const proc = await createProcess()
+    proc.add('other', { 'data/x.json': '' }, [])
+    proc
+      .add(
+        'a',
+        {
+          'main.lua': `local function save(name, data, length)
+    local saved = SaveResourceFile('a', name, data, length)
+    local file = LoadResourceFile('a', name)
+    print(name, saved, file and table.concat({ file:byte(1, -1) }, ','))
+end
+save('new.txt', 'ab', -1)
+save('config.json', 'abc', 0)
+save('sub/x.txt', 'x\\0y', -1)
+save('sub/y.txt', 'x\\0y', 3)
+save('sub/z.txt', 'xy', 3)
+save('sub/w.txt', 'xyz', 2)
+save('/sub/v.txt', 'v')
+save('missing/x.txt', 'x', -1)
+save('sub', 'x', -1)
+save('sub/', 'x', -1)
+save('.', 'x', -1)
+save('', 'x', -1)
+print(SaveResourceFile('a', '../other/data/y.json', 'y', -1), LoadResourceFile('other', 'data/y.json'))
+print(SaveResourceFile('other', 'x.txt', 'x', -1), LoadResourceFile('other', 'x.txt'))
+print(SaveResourceFile('missing', nil, nil, 0))
+print(pcall(SaveResourceFile, 'a', 'empty.txt', nil, 0))
+print(LoadResourceFile('a', 'empty.txt') == '')
+print(SaveResourceFile('a', '../../outside.txt', 'x', -1))
+print(SaveResourceFile('a', 'long.txt', 'xy', 10), LoadResourceFile('a', 'long.txt'))
+print(SaveResourceFile('a', 'negative.txt', 'xy', -2), LoadResourceFile('a', 'negative.txt'))`,
+          'config.json': '{}',
+          'sub/old.txt': '',
+        },
+        [['server_script', 'main.lua']],
+      )
+      .start()
+    expect(proc.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      '[script:a] new.txt\t1\t97,98',
+      '[script:a] config.json\t1\t97,98,99',
+      // For a length of 0 or -1, FiveM writes what comes before the first NUL.
+      '[script:a] sub/x.txt\t1\t120',
+      '[script:a] sub/y.txt\t1\t120,0,121',
+      // Past the data, FiveM writes the NUL that ends it.
+      '[script:a] sub/z.txt\t1\t120,121,0',
+      '[script:a] sub/w.txt\t1\t120,121',
+      '[script:a] /sub/v.txt\t1\t118',
+      '[script:a] missing/x.txt\tfalse\tnil',
+      '[script:a] sub\tfalse\tnil',
+      '[script:a] sub/\tfalse\tnil',
+      '[script:a] .\tfalse\tnil',
+      '[script:a] \tfalse\tnil',
+      '[script:a] 1\ty',
+      '[script:a] false\tnil',
+      '[script:a] false',
+      '[citizen-scripting-core] script error in native 00000000a09e7e7b: Argument at index 2 was null.',
+      '[script:a] false\tnative 00000000a09e7e7b: Argument at index 2 was null.',
+      // FiveM creates the file before it checks the data.
+      '[script:a] true',
+      '[script:a] 1',
+      '[script:a] 1\txy',
+      '[script:a] 1\txy',
+      '[resources] Started resource a',
+    ])
+    expect(proc.diagnostics).toEqual([
+      'a: SaveResourceFile cannot write missing/x.txt in a: FiveM creates no directories, and a has no missing directory with files in it.',
+      'a: SaveResourceFile cannot write x.txt in other: FiveM lets resources write the files of others only with add_filesystem_permission.',
+      'a: SaveResourceFile wrote ../../outside.txt of a outside of any resource, which FiveLab does not keep.',
+      'a: SaveResourceFile was told to write 10 bytes of data that has 2. FiveM would write what follows the data in memory, which FiveLab does not emulate: it writes the data.',
+      'a: SaveResourceFile was told to write -2 bytes of data that has 2. FiveM would write what follows the data in memory, which FiveLab does not emulate: it writes the data.',
+    ])
+  })
+
   it('start and stop resources on servers, but not their own or those FiveM manages', async () => {
     const proc = await createProcess()
     proc.add('a', {})
