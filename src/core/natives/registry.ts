@@ -11,8 +11,16 @@ import type { ArgValue, ParamType, ResultType, ResultValue } from './types.ts'
 
 /** A native with the names scripts call it by. */
 export interface NativeDefinition<Ctx> extends NativeDeclaration<Ctx> {
+  /** The global Lua calls the native by, such as GetEntityCoords. */
+  readonly luaName: string
   /** Other names of the native in Lua, such as earlier names or N_0x hash names. */
   readonly aliases: readonly string[]
+  /**
+   * The lines of documentation FiveM's Lua file for the native starts with,
+   * which the catalog knows. Other natives take them from the native of the
+   * catalog they replace.
+   */
+  readonly docLines?: number
 }
 
 /** A parameter as written in a declaration: its type, a space and its name. */
@@ -36,6 +44,12 @@ export interface NativeSpec<R extends ResultType, P extends readonly ParamSpec[]
   readonly aliases?: readonly string[]
 }
 
+/** Splits a parameter as written in a declaration into its type and name. */
+export function parseParam(param: string): { readonly name: string; readonly type: ParamType } {
+  const space = param.indexOf(' ')
+  return { type: param.slice(0, space) as ParamType, name: param.slice(space + 1) }
+}
+
 /**
  * Defines a native implementation. Parameters are written as in FiveM's
  * declarations, and the implementation receives their JavaScript values:
@@ -50,15 +64,12 @@ export function defineNative<Ctx, R extends ResultType, const P extends readonly
   spec: NativeSpec<R, P>,
   impl: (ctx: Ctx, ...args: NativeArgs<P>) => ResultValue<R>,
 ): NativeDefinition<Ctx> {
-  const params = spec.params.map((param) => {
-    const space = param.indexOf(' ')
-    return { type: param.slice(0, space) as ParamType, name: param.slice(space + 1) }
-  })
   return {
     name: spec.name,
     hash: spec.hash ?? BigInt(hashString(spec.name)),
     result: spec.result,
-    params,
+    params: spec.params.map(parseParam),
+    luaName: luaName(spec.name),
     aliases: (spec.aliases ?? []).map(luaName),
     impl: impl as (ctx: Ctx, ...args: never[]) => unknown,
   }
@@ -69,6 +80,7 @@ export interface RegisteredNative<Ctx> extends PreparedNative<Ctx> {
   /** The global Lua calls the native by. */
   readonly luaName: string
   readonly aliases: readonly string[]
+  readonly docLines: number
 }
 
 /**
@@ -81,14 +93,23 @@ export class NativeRegistry<Ctx extends NativeCaller> {
 
   /**
    * Adds natives. One with the hash or the Lua name of a native already here
-   * replaces it and takes over its aliases, so an implementation can replace
-   * a native from the catalog without repeating its aliases.
+   * replaces it and takes over its aliases and documentation lines, so an
+   * implementation replaces a native of the catalog without repeating them.
+   * Replacing two natives at once is an error: one with the hash of a native
+   * and a name of another.
    */
   register(...natives: readonly NativeDefinition<Ctx>[]): void {
     for (const definition of natives) {
-      const name = luaName(definition.name)
+      const name = definition.luaName
       const hash = BigInt.asUintN(64, definition.hash)
-      const replaced = this.#byHash.get(hash) ?? this.#byName.get(name)
+      const byHash = this.#byHash.get(hash)
+      const byName = this.#byName.get(name)
+      if (byHash !== undefined && byName !== undefined && byHash !== byName) {
+        throw new Error(
+          `${name} (0x${hash.toString(16)}) has the hash of ${byHash.luaName} and a name of ${byName.luaName}`,
+        )
+      }
+      const replaced = byHash ?? byName
       const aliases = new Set(definition.aliases)
       if (replaced !== undefined) {
         this.#byHash.delete(replaced.hash)
@@ -102,6 +123,7 @@ export class NativeRegistry<Ctx extends NativeCaller> {
         ...prepareNative({ ...definition, hash }),
         luaName: name,
         aliases: [...aliases],
+        docLines: definition.docLines ?? replaced?.docLines ?? 0,
       }
       this.#byHash.set(native.hash, native)
       for (const alias of [name, ...native.aliases]) this.#byName.set(alias, native)

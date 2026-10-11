@@ -1,4 +1,5 @@
 import {
+  catalogNatives,
   NativeRegistry,
   nativeWrapper,
   type NativeDefinition,
@@ -12,6 +13,8 @@ export interface ResourceOptions {
   readonly natives?: readonly NativeDefinition<ScriptRuntime>[]
   /** Whether the runtime is a client's, which has Citizen.GetNative. Defaults to false. */
   readonly client?: boolean
+  /** Whether the natives of the catalog come first, for `natives` to replace. Defaults to false. */
+  readonly catalog?: boolean
 }
 
 /** A resource runtime with a game clock the test controls and its console captured. */
@@ -57,7 +60,11 @@ export function scriptNatives(
 }
 
 export async function createResource(options: ResourceOptions = {}): Promise<TestResource> {
-  const { name = 'test', natives = [], client = false } = options
+  const { name = 'test', client = false } = options
+  const natives = [
+    ...(options.catalog ? catalogNatives<ScriptRuntime>(client ? 'client' : 'server') : []),
+    ...(options.natives ?? []),
+  ]
   const runtime = await createRuntime()
   let time = 0
   let output = ''

@@ -42,11 +42,16 @@ export interface NativeCaller {
   trace(text: string): void
   /** Reports a mistake in how the script uses a native. */
   diagnose(message: string): void
+  /** Learns that the script called a native that FiveLab knows but does not implement. */
+  unimplemented(name: string, hash: bigint): void
 }
 
 /** A native as the invoker runs it. */
 export interface NativeDeclaration<Ctx> {
-  /** The name the native is declared with, such as GET_ENTITY_COORDS. */
+  /**
+   * The name to report the native by: the name it is declared with, such as
+   * GET_ENTITY_COORDS, or for natives of the catalog the name Lua calls it by.
+   */
   readonly name: string
   readonly hash: bigint
   readonly result: ResultType
@@ -656,7 +661,8 @@ function processResults(call: Invocation, caller: NativeCaller): LuaValue[] {
  * Runs the call cfxlua.wasm marshalled at `ptr` (Citizen.InvokeNative in
  * native/fivelab.cpp) and returns what the script gets back. `native` is
  * undefined for a hash no native has: FiveM runs those as natives that do
- * nothing, without type information.
+ * nothing, without type information. Natives without an implementation do
+ * nothing too, after the checks their types call for.
  */
 export function invokeNative<Ctx extends NativeCaller>(
   ctx: Ctx,
@@ -669,6 +675,7 @@ export function invokeNative<Ctx extends NativeCaller>(
   if (error !== 0) call.fail(ctx, readCString(lua, error, 256))
   const found = native(call.hash)
   checkArguments(call, ctx, found?.checks ?? null)
+  if (found?.impl === null) ctx.unimplemented(found.name, found.hash)
   if (found?.impl) {
     const args = decodeArguments(call, ctx, found)
     let result: unknown

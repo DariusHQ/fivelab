@@ -1,3 +1,4 @@
+export { catalogNatives, type Side } from './catalog.ts'
 export { NativeError, type NativeCaller, type NativeDeclaration } from './invoker.ts'
 export { declaredName, hashInName, hashString, luaName } from './names.ts'
 export {

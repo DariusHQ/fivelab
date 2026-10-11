@@ -78,6 +78,8 @@ export class ScriptRuntime implements NativeCaller {
   #resultAsObject: LuaRef | undefined
   /** What Citizen.ResultAsObject2 set to turn object results into Lua values. */
   #deserializer: LuaValue = null
+  /** Natives without an implementation that the scripts called, by hash. */
+  readonly #unimplemented = new Set<bigint>()
 
   private constructor(state: LuaState, host: ScriptHost) {
     this.state = state
@@ -162,6 +164,15 @@ export class ScriptRuntime implements NativeCaller {
 
   diagnose(message: string): void {
     this.host.diagnose(message)
+  }
+
+  /** Says once for each native that the scripts called it but FiveLab does not implement it. */
+  unimplemented(name: string, hash: bigint): void {
+    if (this.#unimplemented.has(hash)) return
+    this.#unimplemented.add(hash)
+    this.host.diagnose(
+      `${name} is not implemented in FiveLab yet: it does nothing and returns zero values.`,
+    )
   }
 
   #init(): void {
