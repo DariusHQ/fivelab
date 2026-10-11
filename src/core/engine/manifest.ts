@@ -37,6 +37,19 @@ const MANIFEST_LIBS =
 /** The manifests FiveM looks for, in order. */
 const MANIFEST_FILES = ['fxmanifest.lua', '__resource.lua']
 
+/** The versions of fxmanifest.lua that FiveM knows, oldest first, after none. */
+const FX_VERSIONS = ['', 'adamant', 'bodacious', 'cerulean']
+
+/**
+ * Whether a manifest's fx_version, its first, is `version` or later, as
+ * FiveM compares them. Like FiveM's server, it takes versions that FiveM
+ * does not know as none.
+ */
+export function isFxVersionAtLeast(metadata: readonly MetadataEntry[], version: string): boolean {
+  const own = FX_VERSIONS.indexOf(metadata.find(([key]) => key === 'fx_version')?.[1] ?? '')
+  return own !== -1 && own >= FX_VERSIONS.indexOf(version)
+}
+
 /**
  * Reads the manifest of the resource at `path` as FiveM does: it runs its
  * fxmanifest.lua, or else its __resource.lua, in a Lua state of its own, and

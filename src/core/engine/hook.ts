@@ -1,3 +1,7 @@
+/** The orders FiveM gives callbacks that must run first, and last. */
+export const INT32_MIN = -0x80000000
+export const INT32_MAX = 0x7fffffff
+
 /** A callback of a hook. Returning false stops the hook. */
 export type HookCallback = () => boolean | void
 

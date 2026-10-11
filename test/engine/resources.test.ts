@@ -255,6 +255,60 @@ files { 'html/index.html' }`,
     ])
   })
 
+  it('keep fxmanifest.lua resources of other games, or without fx_version, from starting', async () => {
+    const cases: [string, string[]][] = [
+      [
+        `fx_version 'cerulean'`,
+        ['[resources] ^3Warning: Resource a does not support the current game (gta5).^7'],
+      ],
+      [
+        `fx_version 'cerulean'\ngame 'rdr3'`,
+        ['[resources] ^3Warning: Resource a does not support the current game (gta5).^7'],
+      ],
+      [
+        `fx_version 'cerulean'\ngames { 'common', 'gta5' }`,
+        [
+          '[resources] ^3Warning: Resource a specifies both `common` and a specific game. This is considered ill-formed.^7',
+        ],
+      ],
+      [
+        `game 'gta5'`,
+        ['[resources] ^3Warning: Resource a does not specify an `fx_version` in fxmanifest.lua.^7'],
+      ],
+      [
+        // FiveM's server takes versions it does not know as none.
+        `fx_version 'Cerulean'\ngame 'gta5'`,
+        ['[resources] ^3Warning: Resource a does not specify an `fx_version` in fxmanifest.lua.^7'],
+      ],
+      [
+        `game 'rdr3'`,
+        [
+          '[resources] ^3Warning: Resource a does not support the current game (gta5).^7',
+          '[resources] ^3Warning: Resource a does not specify an `fx_version` in fxmanifest.lua.^7',
+        ],
+      ],
+    ]
+    for (const [manifest, warnings] of cases) {
+      const proc = await createProcess()
+      const res = proc.add('a', { 'fxmanifest.lua': manifest, 'main.lua': `print('ran')` })
+      expect(res.start()).toBe(false)
+      expect(res.state).toBe('stopped')
+      expect(proc.take()).toEqual(warnings)
+    }
+  })
+
+  it('start resources for any game with common, those of adamant or later, and those with __resource.lua', async () => {
+    for (const files of [
+      { 'fxmanifest.lua': `fx_version 'adamant'\ngame 'common'` },
+      { 'fxmanifest.lua': `fx_version 'bodacious'\ngames { 'gta5', 'rdr3' }` },
+      { '__resource.lua': `` },
+    ]) {
+      const proc = await createProcess()
+      expect(proc.add('a', files).start()).toBe(true)
+      expect(proc.take()).toEqual(['[resources] Started resource a'])
+    }
+  })
+
   it('do not warn on clients', async () => {
     const proc = await createProcess({ side: 'client' })
     proc.add('a', {}, [['client_script', 'missing.lua']]).start()

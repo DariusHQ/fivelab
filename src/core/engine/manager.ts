@@ -9,6 +9,8 @@ import {
 import { CLOCK_START } from '../scripting/runtime.ts'
 import type { NativeContext } from './context.ts'
 import { EventManager } from './events.ts'
+import { INT32_MIN } from './hook.ts'
+import { isFxVersionAtLeast } from './manifest.ts'
 import { engineNatives } from './natives/index.ts'
 import { Resource, type ResourceDefinition } from './resource.ts'
 
@@ -98,7 +100,9 @@ export class ResourceManager {
     if (this.#resources.has(name)) throw new Error(`There is a resource named ${name} already`)
     const resource = new Resource(this, name, definition)
     if (this.side === 'server') {
-      // FiveM's server reports the resources it starts and stops.
+      // FiveM's server checks manifests before anything else of a start, and
+      // reports the resources it starts and stops.
+      resource.onStart.connect(() => this.#checkManifest(resource), INT32_MIN)
       resource.onStart.connect(() => this.#reportStart(resource), 99_999_999)
       resource.onStop.connect(() => this.log('resources', `Stopping resource ${name}\n`), -1000)
     }
@@ -151,6 +155,38 @@ export class ResourceManager {
     return native === undefined
       ? null
       : nativeWrapper(native, name, { direct: this.side === 'client' })
+  }
+
+  /**
+   * Whether FiveM's server lets a resource start, by what its fxmanifest.lua
+   * says of the game and its version, which must be GTA V's, or common, and
+   * adamant or later. Resources with a __resource.lua may start on GTA V's.
+   */
+  #checkManifest(resource: Resource): boolean {
+    if (resource.entries('is_cfxv2').length === 0) return true
+    const name = resource.name
+    const games = resource.entries('game')
+    const common = games.includes('common')
+    const gta5 = games.includes('gta5')
+    let allowed = true
+    if (common && gta5) {
+      this.logWarning(
+        'resources',
+        `Resource ${name} specifies both \`common\` and a specific game. This is considered ill-formed.\n`,
+      )
+      allowed = false
+    } else if (!common && !gta5) {
+      this.logWarning('resources', `Resource ${name} does not support the current game (gta5).\n`)
+      allowed = false
+    }
+    if (!isFxVersionAtLeast(resource.metadata, 'adamant')) {
+      this.logWarning(
+        'resources',
+        `Resource ${name} does not specify an \`fx_version\` in fxmanifest.lua.\n`,
+      )
+      allowed = false
+    }
+    return allowed
   }
 
   /**
