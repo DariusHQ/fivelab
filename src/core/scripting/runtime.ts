@@ -1,11 +1,33 @@
-import { LuaError, LuaRef, type LuaRuntime, type LuaState, type LuaValue } from '../lua/index.ts'
+import {
+  CFunction,
+  type HostArgs,
+  LuaError,
+  LuaHostFunction,
+  LuaRef,
+  type LuaRuntime,
+  type LuaState,
+  type LuaValue,
+} from '../lua/index.ts'
+import type { NativeCaller } from '../natives/invoker.ts'
+import nativesSource from './lua/natives.lua?raw'
 import schedulerSource from './lua/scheduler.lua?raw'
 import deferredSource from './lua/vendor/deferred.lua?raw'
+
+/** The natives a resource's scripts can call. */
+export interface ScriptNatives {
+  /** Whether Citizen.GetNative and Citizen.InvokeNative2 exist, as they do on FiveM clients. */
+  readonly client: boolean
+  /** The Lua code that defines the native called `name` in Global, or null if no native has that name. */
+  load(name: string): string | null
+  /** Runs a native call that cfxlua.wasm marshalled at `ptr` for a script of `runtime`. */
+  invoke(runtime: ScriptRuntime, ptr: number): LuaValue[]
+}
 
 /** What the scripts of one resource need from the game around them. */
 export interface ScriptHost {
   /** The resource the scripts belong to. */
   readonly resource: string
+  readonly natives: ScriptNatives
   /** Milliseconds of game time, as GetGameTimer returns them. */
   gameTimer(): number
   /**
@@ -16,15 +38,19 @@ export interface ScriptHost {
   trace(text: string): void
   /** Reports a Lua warning: what warn() reports and errors in finalizers. */
   warn(message: string): void
+  /** Writes to the console outside of the resource, on a channel such as citizen-scripting-core. */
+  log(channel: string, text: string): void
+  /** Reports a mistake in how a script uses FiveM that FiveLab noticed. */
+  diagnose(message: string): void
 }
 
-/** Collects host functions into the table the FiveLab scripts receive, with their shared table. */
-const HOST_TABLE = `local host = {}
+/** Collects name and value pairs into a table. */
+const TABLE = `local t = {}
 for i = 1, select('#', ...), 2 do
     local name, value = select(i, ...)
-    host[name] = value
+    t[name] = value
 end
-return host, {}`
+return t`
 
 /** Reads the entry points the FiveLab scripts leave in their shared table. */
 const ENTRY_POINTS = `local fivelab = ...
@@ -41,50 +67,37 @@ function functionRef(value: LuaValue): LuaRef {
 
 /**
  * The Lua runtime of one resource on one side, set up like FiveM's: CfxLua
- * with FiveM's libraries and require, the promise library, and the Citizen
- * scheduler with print.
+ * with FiveM's libraries and require, the Citizen table with natives that load
+ * on first use, the promise library, and the Citizen scheduler with print.
  */
-export class ScriptRuntime {
+export class ScriptRuntime implements NativeCaller {
   readonly state: LuaState
   readonly host: ScriptHost
-  readonly #tick: LuaRef
-  readonly #runFile: LuaRef
+  #tick: LuaRef | undefined
+  #runFile: LuaRef | undefined
+  #resultAsObject: LuaRef | undefined
+  /** What Citizen.ResultAsObject2 set to turn object results into Lua values. */
+  #deserializer: LuaValue = null
 
-  private constructor(state: LuaState, host: ScriptHost, tick: LuaRef, runFile: LuaRef) {
+  private constructor(state: LuaState, host: ScriptHost) {
     this.state = state
     this.host = host
-    this.#tick = tick
-    this.#runFile = runFile
   }
 
   static create(runtime: LuaRuntime, host: ScriptHost): ScriptRuntime {
     const state = runtime.newState({ onWarning: (message) => host.warn(message) })
+    const script = new ScriptRuntime(state, host)
     try {
-      state.setGlobal('require', state.requireFunction())
-      state.setGlobal('dofile', null)
-      state.setGlobal('loadfile', null)
-      const [promise] = state.run(deferredSource, '@fivelab:/deferred.lua')
-      state.setGlobal('promise', promise)
-      release(promise)
-
-      const [hostTable, fivelab] = state.run(
-        HOST_TABLE,
-        '=fivelab:host',
-        'gameTimer',
-        state.hostFunction(() => host.gameTimer()),
-        'trace',
-        state.hostFunction((args) => {
-          host.trace(String(args.get(1)))
-        }),
-      )
-      state.run(schedulerSource, '@fivelab:/scheduler.lua', hostTable, fivelab)
-      const [tick, runFile] = state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
-      release(hostTable, fivelab)
-      return new ScriptRuntime(state, host, functionRef(tick), functionRef(runFile))
+      script.#init()
+      return script
     } catch (error) {
       state.close()
       throw error
     }
+  }
+
+  get lua(): LuaRuntime {
+    return this.state.runtime
   }
 
   /**
@@ -105,7 +118,7 @@ export class ScriptRuntime {
       return false
     }
     try {
-      this.state.call(this.#runFile, chunk)
+      this.state.call(this.#runFile!, chunk)
     } finally {
       chunk.release()
     }
@@ -114,10 +127,130 @@ export class ScriptRuntime {
 
   /** Resumes the threads that are due at the current game time. */
   tick(): void {
-    this.state.call(this.#tick)
+    this.state.call(this.#tick!)
   }
 
   close(): void {
     this.state.close()
+  }
+
+  /**
+   * Runs Citizen.ResultAsObject2's function on an object result. Like FiveM,
+   * a failure is reported and reads as nil.
+   */
+  deserialize(bytes: Uint8Array): LuaValue {
+    const fn = this.#deserializer
+    try {
+      if (!(fn instanceof LuaRef || fn instanceof LuaHostFunction)) {
+        throw new LuaError(`attempt to call a ${fn === null ? 'nil' : typeof fn} value`)
+      }
+      const [value = null] = this.state.call(fn, bytes)
+      return value
+    } catch (error) {
+      if (!(error instanceof LuaError)) throw error
+      const traceback = error.luaTraceback === undefined ? '' : `\n${error.luaTraceback}`
+      this.host.trace(
+        `Error running deserialization function for resource ${this.host.resource}: ${error.message}${traceback}\n`,
+      )
+      return null
+    }
+  }
+
+  trace(text: string): void {
+    this.host.log('citizen-scripting-core', text)
+  }
+
+  diagnose(message: string): void {
+    this.host.diagnose(message)
+  }
+
+  #init(): void {
+    const { state, host } = this
+    const require = state.requireFunction()
+    state.setGlobal('require', require)
+    require.release()
+    const citizen = this.#citizen()
+    state.setGlobal('Citizen', citizen)
+    release(citizen)
+    state.run(nativesSource, '@fivelab:/natives.lua')
+
+    const [promise] = state.run(deferredSource, '@fivelab:/deferred.lua')
+    state.setGlobal('promise', promise)
+    release(promise)
+
+    const [hostTable] = state.run(
+      TABLE,
+      '=fivelab:host',
+      'gameTimer',
+      state.hostFunction(() => host.gameTimer()),
+      'trace',
+      state.hostFunction((args) => {
+        host.trace(String(args.get(1)))
+      }),
+    )
+    const [fivelab] = state.run('return {}', '=fivelab:shared')
+    state.run(schedulerSource, '@fivelab:/scheduler.lua', hostTable, fivelab)
+    const [tick, runFile] = state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
+    release(hostTable, fivelab)
+    this.#tick = functionRef(tick)
+    this.#runFile = functionRef(runFile)
+    state.setGlobal('dofile', null)
+    state.setGlobal('loadfile', null)
+  }
+
+  /** The Citizen table as FiveM creates it, before its scripts add to it. */
+  #citizen(): LuaValue {
+    const { state, host } = this
+    const invoker = state.hostFunction((args) => host.natives.invoke(this, Number(args.get(1))))
+    const marker = state.cFunction(CFunction.resultAsObject)
+    const [resultAsObject] = state.call(marker)
+    marker.release()
+    this.#resultAsObject = resultAsObject as LuaRef
+    const functions: [string, LuaValue][] = [
+      ['InvokeNative', state.cFunction(CFunction.invokeNative, invoker)],
+      ['LoadNative', state.hostFunction((args) => this.#loadNative(args))],
+      ['PointerValueIntInitialized', state.cFunction(CFunction.pointerValueIntInitialized)],
+      ['PointerValueFloatInitialized', state.cFunction(CFunction.pointerValueFloatInitialized)],
+      ['PointerValueInt', state.cFunction(CFunction.pointerValueInt)],
+      ['PointerValueFloat', state.cFunction(CFunction.pointerValueFloat)],
+      ['PointerValueVector', state.cFunction(CFunction.pointerValueVector)],
+      ['ReturnResultAnyway', state.cFunction(CFunction.returnResultAnyway)],
+      ['ResultAsInteger', state.cFunction(CFunction.resultAsInteger)],
+      ['ResultAsLong', state.cFunction(CFunction.resultAsLong)],
+      ['ResultAsFloat', state.cFunction(CFunction.resultAsFloat)],
+      ['ResultAsString', state.cFunction(CFunction.resultAsString)],
+      ['ResultAsVector', state.cFunction(CFunction.resultAsVector)],
+      ['ResultAsObject', state.cFunction(CFunction.noop)],
+      [
+        'ResultAsObject2',
+        state.hostFunction((args) => {
+          release(this.#deserializer)
+          this.#deserializer = args.get(1)
+          return this.#resultAsObject
+        }),
+      ],
+      ['AwaitSentinel', state.cFunction(CFunction.awaitSentinel)],
+    ]
+    if (host.natives.client) {
+      functions.push(
+        ['GetNative', state.cFunction(CFunction.getNative, invoker)],
+        ['InvokeNative2', state.cFunction(CFunction.invokeNative2, invoker)],
+      )
+    }
+    const [citizen] = state.run(TABLE, '=fivelab:citizen', ...functions.flat())
+    release(...functions.map(([, value]) => value))
+    return citizen ?? null
+  }
+
+  /**
+   * Citizen.LoadNative, for the loader in natives.lua. Like FiveM's, it takes
+   * numbers as names (no native has one) and rejects other values, so that
+   * looking up a missing global under a key such as true fails.
+   */
+  #loadNative(args: HostArgs): string | null {
+    const type = args.typeName(1)
+    if (type === 'string') return this.host.natives.load(String(args.get(1)))
+    if (type === 'number') return null
+    throw new LuaError(`bad argument #1 to 'LoadNative' (string expected, got ${type})`)
   }
 }

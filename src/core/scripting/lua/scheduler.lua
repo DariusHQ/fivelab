@@ -39,8 +39,7 @@ local gameTimer = host.gameTimer
 local trace = host.trace
 
 local G = _G
-local Citizen = {}
-G.Citizen = Citizen
+local Citizen = G.Citizen
 
 --[[ Errors and stack traces ]]
 
