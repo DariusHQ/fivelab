@@ -334,6 +334,12 @@ export class ScriptRuntime implements NativeCaller {
         }),
       ],
       ['AwaitSentinel', state.cFunction(CFunction.awaitSentinel)],
+      // FiveM ignores tick routines. It keeps the first boundary and stack
+      // trace routines it is given, which its scheduler gives before any
+      // resource script runs, so calls from scripts change nothing.
+      ['SetTickRoutine', state.cFunction(CFunction.noop)],
+      ['SetBoundaryRoutine', state.cFunction(CFunction.noop)],
+      ['SetStackTraceRoutine', state.cFunction(CFunction.noop)],
     ]
     if (host.natives.client) {
       functions.push(

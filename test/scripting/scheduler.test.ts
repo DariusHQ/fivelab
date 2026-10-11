@@ -332,6 +332,16 @@ describe('globals', () => {
     expect(res.take()).toBe('true\ttrue\ttrue\ttrue\tfunction\tfunction\tnil\tnil\tnil\n')
   })
 
+  it('include the routines that scripts cannot set, as in FiveM', async () => {
+    const res = await createResource()
+    res.run(`local function routine() print('routine') end
+print(select('#', Citizen.SetTickRoutine(routine)), select('#', Citizen.SetBoundaryRoutine(routine)),
+    select('#', Citizen.SetStackTraceRoutine(routine)), select('#', Citizen.SetTickRoutine()))
+CreateThread(function() print('thread') end)`)
+    res.tickAt(0)
+    expect(res.take()).toBe('0\t0\t0\t0\nthread\n')
+  })
+
   it('print converts values with the current global tostring', async () => {
     const res = await createResource()
     res.run(`print(1, 1.5, nil, true, 'text')
