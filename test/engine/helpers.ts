@@ -21,8 +21,9 @@ export interface TestProcess {
   /** Diagnostics, as "resource: message". */
   readonly diagnostics: readonly string[]
   /**
-   * Adds a resource with `files`. Without `metadata`, its manifest lists each
-   * of the files as a script of the process's side.
+   * Adds a resource with `files`. Without `metadata`, the resource reads its
+   * fxmanifest.lua or __resource.lua, or if it has neither, its manifest
+   * lists each of the files as a script of the process's side.
    */
   add(
     name: string,
@@ -62,11 +63,15 @@ export async function createProcess(options: ProcessOptions = {}): Promise<TestP
     time: 0,
     warnings,
     diagnostics,
-    add: (name, files, metadata) =>
-      process.manager.addResource(name, {
+    add: (name, files, metadata) => {
+      if (metadata === undefined && ('fxmanifest.lua' in files || '__resource.lua' in files)) {
+        return process.manager.addResource(name, { files })
+      }
+      return process.manager.addResource(name, {
         files,
         metadata: metadata ?? Object.keys(files).map((path) => [`${side}_script`, path] as const),
-      }),
+      })
+    },
     tickAt: (time) => {
       process.time = time
       process.manager.tick()

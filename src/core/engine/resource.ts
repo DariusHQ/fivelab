@@ -2,6 +2,7 @@ import { ScriptRuntime, type ScriptHost } from '../scripting/runtime.ts'
 import { NativeContext } from './context.ts'
 import { Hook } from './hook.ts'
 import type { ResourceManager } from './manager.ts'
+import { readManifest, type MetadataEntry } from './manifest.ts'
 
 /** The states of a resource, named as GetResourceState names them. */
 export type ResourceState = 'uninitialized' | 'stopped' | 'starting' | 'started' | 'stopping'
@@ -10,8 +11,13 @@ export type ResourceState = 'uninitialized' | 'stopped' | 'starting' | 'started'
 export interface ResourceDefinition {
   /** The files of the resource by path, such as client.lua. */
   readonly files: Readonly<Record<string, string | Uint8Array>>
-  /** The entries of its manifest in order, such as ['client_script', 'client.lua']. */
-  readonly metadata: readonly (readonly [key: string, value: string])[]
+  /**
+   * The entries of its manifest in order, such as ['client_script', 'client.lua'].
+   * Without them, the resource reads its fxmanifest.lua or __resource.lua.
+   */
+  readonly metadata?: readonly MetadataEntry[]
+  /** Where the resource is, as FiveM's messages name it. Defaults to resources/<name>. */
+  readonly path?: string
 }
 
 /**
@@ -22,7 +28,8 @@ export interface ResourceDefinition {
 export class Resource {
   readonly name: string
   readonly manager: ResourceManager
-  readonly metadata: readonly (readonly [key: string, value: string])[]
+  readonly path: string
+  readonly metadata: readonly MetadataEntry[]
   /**
    * The events the resource's scripts registered handlers for. FiveM keeps
    * them for as long as the resource exists, across restarts.
@@ -43,11 +50,14 @@ export class Resource {
   /** Runtimes of a stopped resource that close when their last call returns. */
   readonly #retired = new Set<ScriptRuntime>()
 
+  /** Throws a ManifestError when the resource has no metadata and its manifest does not load. */
   constructor(manager: ResourceManager, name: string, definition: ResourceDefinition) {
     this.manager = manager
     this.name = name
-    this.metadata = definition.metadata
+    this.path = definition.path ?? `resources/${name}`
     this.#files = new Map(Object.entries(definition.files))
+    this.metadata =
+      definition.metadata ?? readManifest(manager.lua, this.path, (path) => this.#files.get(path))
     // FiveM's event component connects to a resource's hooks before its scripting component does.
     manager.events.attach(this)
     this.onStart.connect(() => this.#createRuntime())

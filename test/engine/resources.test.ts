@@ -1,10 +1,41 @@
 import { describe, expect, it } from 'vitest'
 
-import type { NativeContext } from '../../src/core/engine/index.ts'
+import { ManifestError, type NativeContext } from '../../src/core/engine/index.ts'
 import { defineNative } from '../../src/core/natives/index.ts'
 import { createProcess } from './helpers.ts'
 
 describe('resources', () => {
+  it('read their manifest when they come without metadata', async () => {
+    const proc = await createProcess()
+    const res = proc.add('a', {
+      'fxmanifest.lua': `fx_version 'cerulean'
+game 'gta5'
+server_scripts { 'first.lua', 'second.lua' }`,
+      'first.lua': `print('first')`,
+      'second.lua': `print('second')`,
+    })
+    expect(res.path).toBe('resources/a')
+    expect(res.entries('server_script')).toEqual(['first.lua', 'second.lua'])
+    expect(res.entries('is_cfxv2')).toEqual(['true'])
+    res.start()
+    expect(proc.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      '[script:a] first',
+      '[script:a] second',
+      '[resources] Started resource a',
+    ])
+  })
+
+  it('are not added when their manifest does not load', async () => {
+    const proc = await createProcess()
+    expect(() => proc.add('a', { 'fxmanifest.lua': `fx_version = = 'cerulean'` })).toThrow(
+      new ManifestError(
+        "Could not parse resource metadata file resources/a/fxmanifest.lua: a/fxmanifest.lua:1: unexpected symbol near '='",
+      ),
+    )
+    expect(proc.manager.getResource('a')).toBe(undefined)
+  })
+
   it('run their shared scripts, then those of their side, when they start', async () => {
     const proc = await createProcess({ side: 'client' })
     const res = proc.add(
