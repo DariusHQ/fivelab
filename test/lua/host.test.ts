@@ -113,6 +113,33 @@ describe('host functions', () => {
     expect(main).toBe(false)
   })
 
+  it('can call back into their own state on the main thread', async () => {
+    const lua = (await createRuntime()).newState()
+    const [inner] = lua.run(
+      `return function() local co, main = coroutine.running(); return main end`,
+      '=test',
+    )
+    const [fail] = lua.run(`return function() error('on main', 0) end`, '=test')
+    lua.setGlobal(
+      'reenter',
+      lua.hostFunction(() => lua.callOnMain(inner as LuaRef)),
+    )
+    lua.setGlobal(
+      'fail',
+      lua.hostFunction(() => lua.callOnMain(fail as LuaRef)),
+    )
+    const results = lua.run(
+      `local co
+       co = coroutine.create(function()
+         local main = reenter()
+         return main, coroutine.status(co), pcall(fail)
+       end)
+       return coroutine.resume(co)`,
+      '=test',
+    )
+    expect(results).toEqual([true, true, 'running', false, 'on main'])
+  })
+
   it('carry errors through nested calls in both directions', async () => {
     const lua = (await createRuntime()).newState()
     const [thrower] = lua.run(`return function() error('deep', 0) end`, '=test')

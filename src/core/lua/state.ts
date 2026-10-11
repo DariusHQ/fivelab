@@ -295,19 +295,30 @@ export class LuaState {
 
   /** Calls a Lua value in protected mode and returns all of its results. */
   call(fn: LuaRef | LuaHostFunction, ...args: LuaValue[]): LuaValue[] {
-    return this.#enter((L) => {
-      const ex = this.runtime.exports
-      const base = ex.fl_gettop(L)
-      this.push(L, fn)
-      for (const arg of args) this.push(L, arg)
-      const status = ex.fl_pcall(L, args.length, LUA_MULTRET)
-      if (status !== LUA_OK) throw this.#popError(L, status, base, true)
-      const top = ex.fl_gettop(L)
-      const results: LuaValue[] = []
-      for (let i = base + 1; i <= top; i++) results.push(this.read(L, i))
-      ex.fl_settop(L, base)
-      return results
-    })
+    return this.#enter((L) => this.#call(L, fn, args))
+  }
+
+  /**
+   * Calls a Lua value as call does, but on the main thread even inside a
+   * host call from a coroutine, as C code calls functions on a state it
+   * kept rather than on the thread that called it.
+   */
+  callOnMain(fn: LuaRef | LuaHostFunction, ...args: LuaValue[]): LuaValue[] {
+    return this.#enter((L) => this.#call(L, fn, args), this.L)
+  }
+
+  #call(L: Ptr, fn: LuaRef | LuaHostFunction, args: readonly LuaValue[]): LuaValue[] {
+    const ex = this.runtime.exports
+    const base = ex.fl_gettop(L)
+    this.push(L, fn)
+    for (const arg of args) this.push(L, arg)
+    const status = ex.fl_pcall(L, args.length, LUA_MULTRET)
+    if (status !== LUA_OK) throw this.#popError(L, status, base, true)
+    const top = ex.fl_gettop(L)
+    const results: LuaValue[] = []
+    for (let i = base + 1; i <= top; i++) results.push(this.read(L, i))
+    ex.fl_settop(L, base)
+    return results
   }
 
   /** Reads a global without invoking metamethods. */
@@ -613,17 +624,18 @@ export class LuaState {
   }
 
   /**
-   * Runs `body` against the current thread: the one that made the innermost
-   * active host call, or the main thread. Restores the stack if JavaScript
-   * throws midway, and translates exceptions that escaped the module.
+   * Runs `body` against `thread`, by default the current thread: the one that
+   * made the innermost active host call, or the main thread. Restores the
+   * stack if JavaScript throws midway, and translates exceptions that escaped
+   * the module.
    */
-  #enter<T>(body: (L: Ptr) => T): T {
+  #enter<T>(body: (L: Ptr) => T, thread?: Ptr): T {
     this.#checkOpen()
     this.runtime.checkEnter()
     if (nestedCalls >= MAX_NESTED_CALLS) {
       throw new RangeError(`Too many nested calls between JavaScript and Lua (${MAX_NESTED_CALLS})`)
     }
-    const L = this.#threads.at(-1) ?? this.L
+    const L = thread ?? this.#threads.at(-1) ?? this.L
     const ex = this.runtime.exports
     const top = ex.fl_gettop(L)
     if (this.#entries === 0) this.#sliceStart = performance.now()
