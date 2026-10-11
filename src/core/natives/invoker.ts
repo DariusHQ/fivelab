@@ -7,14 +7,7 @@ import {
   NATIVE_ARGS,
   NativeCallLayout as Layout,
 } from '../lua/abi.ts'
-import {
-  LuaError,
-  LuaFatalError,
-  LuaFloat,
-  LuaVector,
-  type LuaRuntime,
-  type LuaValue,
-} from '../lua/index.ts'
+import { LuaFatalError, LuaFloat, LuaVector, type LuaRuntime, type LuaValue } from '../lua/index.ts'
 import {
   typeInfo,
   type NativePointer,
@@ -269,8 +262,13 @@ class Invocation {
   fail(caller: NativeCaller, message: string): never {
     const text = `native ${this.hash.toString(16).padStart(16, '0')}: ${message}`
     caller.trace(`script error in ${text}\n`)
-    throw new LuaError(text)
+    throw new NativeFailure(text)
   }
+}
+
+/** Ends a call with the error the script gets; see Invocation.fail. */
+class NativeFailure extends Error {
+  override readonly name = 'NativeFailure'
 }
 
 /**
@@ -663,6 +661,9 @@ function processResults(call: Invocation, caller: NativeCaller): LuaValue[] {
  * undefined for a hash no native has: FiveM runs those as natives that do
  * nothing, without type information. Natives without an implementation do
  * nothing too, after the checks their types call for.
+ *
+ * A call that fails returns its error and marks the call failed, for
+ * cfxlua.wasm to raise the error from the native's own function.
  */
 export function invokeNative<Ctx extends NativeCaller>(
   ctx: Ctx,
@@ -671,22 +672,28 @@ export function invokeNative<Ctx extends NativeCaller>(
 ): LuaValue[] {
   const lua = ctx.lua
   const call = new Invocation(lua, ptr)
-  const error = lua.view.getUint32(ptr + Layout.error, true)
-  if (error !== 0) call.fail(ctx, readCString(lua, error, 256))
-  const found = native(call.hash)
-  checkArguments(call, ctx, found?.checks ?? null)
-  if (found?.impl === null) ctx.unimplemented(found.name, found.hash)
-  if (found?.impl) {
-    const args = decodeArguments(call, ctx, found)
-    let result: unknown
-    try {
-      result = (found.impl as (ctx: Ctx, ...args: unknown[]) => unknown)(ctx, ...args)
-    } catch (thrown) {
-      if (thrown instanceof WebAssembly.Exception || thrown instanceof LuaFatalError) throw thrown
-      call.fail(ctx, thrown instanceof Error ? thrown.message : String(thrown))
+  try {
+    const error = lua.view.getUint32(ptr + Layout.error, true)
+    if (error !== 0) call.fail(ctx, readCString(lua, error, 256))
+    const found = native(call.hash)
+    checkArguments(call, ctx, found?.checks ?? null)
+    if (found?.impl === null) ctx.unimplemented(found.name, found.hash)
+    if (found?.impl) {
+      const args = decodeArguments(call, ctx, found)
+      let result: unknown
+      try {
+        result = (found.impl as (ctx: Ctx, ...args: unknown[]) => unknown)(ctx, ...args)
+      } catch (thrown) {
+        if (thrown instanceof WebAssembly.Exception || thrown instanceof LuaFatalError) throw thrown
+        call.fail(ctx, thrown instanceof Error ? thrown.message : String(thrown))
+      }
+      encodeResult(call, found.result, result)
     }
-    encodeResult(call, found.result, result)
+    checkResults(call, ctx, found?.checks.result ?? null)
+    return processResults(call, ctx)
+  } catch (failure) {
+    if (!(failure instanceof NativeFailure)) throw failure
+    lua.view.setUint32(ptr + Layout.failed, 1, true)
+    return [failure.message]
   }
-  checkResults(call, ctx, found?.checks.result ?? null)
-  return processResults(call, ctx)
 }

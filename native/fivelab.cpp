@@ -372,6 +372,7 @@ struct FLNativeCall {
   uint32_t nretvals;
   uint32_t nbuffers;  /* slots of `buffers` in use */
   const char *error;  /* why marshalling failed, or NULL */
+  uint32_t failed;  /* set by the invoker when the native failed; its only result is the error */
 };
 
 static_assert(offsetof(FLNativeCall, arguments) == 8, "FLNativeCall layout");
@@ -385,6 +386,7 @@ static_assert(offsetof(FLNativeCall, nargs) == 920, "FLNativeCall layout");
 static_assert(offsetof(FLNativeCall, nretvals) == 924, "FLNativeCall layout");
 static_assert(offsetof(FLNativeCall, nbuffers) == 928, "FLNativeCall layout");
 static_assert(offsetof(FLNativeCall, error) == 932, "FLNativeCall layout");
+static_assert(offsetof(FLNativeCall, failed) == 936, "FLNativeCall layout");
 
 /* Markers point into these, so they compare equal to themselves as in FiveM. */
 static uint8_t fl_metafields[FL_META_MAX];
@@ -576,7 +578,9 @@ static int fl_nativearg(lua_State *L, FLNativeCall *call, int idx) {
 /*
 ** Marshals the arguments from `first` up and returns what host function
 ** `invoker` returns for the call. Marshalling errors go to the host too, which
-** reports them the way FiveM reports native errors.
+** reports them the way FiveM reports native errors. A native that fails
+** raises its error from the calling function, as FiveM's do, so that error
+** handlers find the script's caller right below it.
 */
 static int fl_invoke(lua_State *L, uint64_t hash, int first, int invoker) {
   FLNativeCall call;
@@ -588,6 +592,7 @@ static int fl_invoke(lua_State *L, uint64_t hash, int first, int invoker) {
   call.nretvals = 1;
   call.nbuffers = 0;
   call.error = NULL;
+  call.failed = 0;
   int top = lua_gettop(L);
   for (int i = first; i <= top; i++) {
     if (!fl_nativearg(L, &call, i))
@@ -598,6 +603,8 @@ static int fl_invoke(lua_State *L, uint64_t hash, int first, int invoker) {
   lua_pushvalue(L, invoker);
   lua_pushinteger(L, static_cast<lua_Integer>(reinterpret_cast<uintptr_t>(&call)));
   lua_call(L, 1, LUA_MULTRET);
+  if (call.failed)
+    return lua_error(L);
   return lua_gettop(L) - base;
 }
 

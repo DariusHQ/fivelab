@@ -179,6 +179,7 @@ export const NativeCallLayout = {
   nargs: 920,
   nretvals: 924,
   error: 932,
+  failed: 936,
 } as const
 
 /** Native argument slots and out-pointer results a call can hold. */

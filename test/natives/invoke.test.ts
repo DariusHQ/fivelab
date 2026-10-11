@@ -366,6 +366,34 @@ describe('natives that fail', () => {
       '[citizen-scripting-core] script error in native d24d37cc275948cc: Argument at index 0 was null.\n',
     ])
   })
+
+  it('raise it from the function the script called, as FiveM does', async () => {
+    const failing = defineNative(
+      { name: 'FAIL', hash: 0x2000n, result: 'void', params: [] },
+      () => {
+        throw new NativeError('failed')
+      },
+    )
+    for (const client of [false, true]) {
+      const { output } = await run(
+        `local invoke = Citizen.GetNative and Citizen.GetNative(0x2000) or Citizen.InvokeNative
+local function fails() return invoke(0x2000) end
+local function misuses() return invoke(0x2000, print) end
+for _, fn in ipairs({ fails, misuses }) do
+    xpcall(fn, function(err)
+        local raiser, caller = debug.getinfo(2, 'S'), debug.getinfo(3, 'Sl')
+        print(err, raiser.what, caller.short_src, caller.currentline)
+    end)
+end`,
+        [failing],
+        client,
+      )
+      expect(output).toBe(
+        'native 0000000000002000: failed\tC\t@test/client.lua\t2\n' +
+          'native 0000000000002000: invalid lua type: function\tC\t@test/client.lua\t3\n',
+      )
+    }
+  })
 })
 
 describe('unknown natives', () => {
