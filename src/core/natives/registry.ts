@@ -33,12 +33,22 @@ export type NativeArgs<P extends readonly string[]> = {
   -readonly [K in keyof P]: ArgValue<ParamTypeOf<P[K]>>
 }
 
-export interface NativeSpec<R extends ResultType, P extends readonly ParamSpec[]> {
+export interface NativeSpec<
+  R extends ResultType,
+  P extends readonly ParamSpec[],
+  S extends ResultType = R,
+> {
   /** The declared name, such as GET_ENTITY_COORDS. */
   readonly name: string
   /** The 64-bit hash. CFX natives leave it out: theirs is the hash of their name. */
   readonly hash?: bigint
   readonly result: R
+  /**
+   * The type of the result FiveM's implementation sets, for natives that set
+   * one other than they declare, such as TRIGGER_EVENT_INTERNAL: declared
+   * void, it sets a BOOL. The implementation returns a value of this type.
+   */
+  readonly sets?: S
   readonly params: P
   /** Declared names of aliases, such as names the native had before. */
   readonly aliases?: readonly string[]
@@ -60,14 +70,20 @@ export function parseParam(param: string): { readonly name: string; readonly typ
  *     (ctx, entity, alive) => ...,
  *   )
  */
-export function defineNative<Ctx, R extends ResultType, const P extends readonly ParamSpec[]>(
-  spec: NativeSpec<R, P>,
-  impl: (ctx: Ctx, ...args: NativeArgs<P>) => ResultValue<R>,
+export function defineNative<
+  Ctx,
+  R extends ResultType,
+  const P extends readonly ParamSpec[],
+  S extends ResultType = R,
+>(
+  spec: NativeSpec<R, P, S>,
+  impl: (ctx: Ctx, ...args: NativeArgs<P>) => ResultValue<S>,
 ): NativeDefinition<Ctx> {
   return {
     name: spec.name,
     hash: spec.hash ?? BigInt(hashString(spec.name)),
     result: spec.result,
+    ...(spec.sets === undefined ? {} : { sets: spec.sets }),
     params: spec.params.map(parseParam),
     luaName: luaName(spec.name),
     aliases: (spec.aliases ?? []).map(luaName),

@@ -48,6 +48,12 @@ export interface NativeDeclaration<Ctx> {
   readonly name: string
   readonly hash: bigint
   readonly result: ResultType
+  /**
+   * The type of the result that FiveM's implementation sets, where it is not
+   * the declared one. The result is set as this type, then checked and read
+   * as the declared one, as it is in FiveM.
+   */
+  readonly sets?: ResultType
   readonly params: readonly { readonly name: string; readonly type: ParamType }[]
   /** Runs the native; null for natives FiveLab knows but does not implement. */
   readonly impl: ((ctx: Ctx, ...args: never[]) => unknown) | null
@@ -687,7 +693,7 @@ export function invokeNative<Ctx extends NativeCaller>(
         if (thrown instanceof WebAssembly.Exception || thrown instanceof LuaFatalError) throw thrown
         call.fail(ctx, thrown instanceof Error ? thrown.message : String(thrown))
       }
-      encodeResult(call, found.result, result)
+      encodeResult(call, found.sets ?? found.result, result)
     }
     checkResults(call, ctx, found?.checks.result ?? null)
     return processResults(call, ctx)

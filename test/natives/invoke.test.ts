@@ -355,6 +355,22 @@ print(Citizen.InvokeNative(0x3100, 0, 0, 0, 0, Citizen.ReturnResultAnyway()))`,
     const { output } = await run(`print(Citizen.InvokeNative(0x3200))`, [nothing])
     expect(output).toBe('false\n')
   })
+
+  it('that natives set though they declare none are poisoned, unless zero', async () => {
+    // Like TRIGGER_EVENT_INTERNAL, which is void but sets a BOOL.
+    const voidButTrue = defineNative(
+      { name: 'VOID_BUT_TRUE', hash: 0x3201n, result: 'void', sets: 'BOOL', params: ['BOOL b'] },
+      (_ctx, b) => b,
+    )
+    const { output } = await run(
+      `print(Citizen.InvokeNative(0x3201, true), Citizen.InvokeNative(0x3201, false))
+print(pcall(Citizen.InvokeNative, 0x3201, true, Citizen.ResultAsString()))`,
+      [voidButTrue],
+    )
+    expect(output).toBe(
+      '2146290430\tfalse\nfalse\tnative 0000000000003201: result type is not a string\n',
+    )
+  })
 })
 
 describe('natives that fail', () => {
