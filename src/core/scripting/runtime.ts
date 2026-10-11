@@ -7,8 +7,10 @@ import {
   type LuaRuntime,
   type LuaState,
   type LuaValue,
+  LuaVector,
 } from '../lua/index.ts'
 import type { NativeCaller } from '../natives/invoker.ts'
+import eventsSource from './lua/events.lua?raw'
 import nativesSource from './lua/natives.lua?raw'
 import schedulerSource from './lua/scheduler.lua?raw'
 import deferredSource from './lua/vendor/deferred.lua?raw'
@@ -64,7 +66,7 @@ return t`
 
 /** Reads the entry points the FiveLab scripts leave in their shared table. */
 const ENTRY_POINTS = `local fivelab = ...
-return fivelab.collect, fivelab.resume, fivelab.runFile`
+return fivelab.collect, fivelab.resume, fivelab.runFile, fivelab.flush`
 
 function release(...values: LuaValue[]): void {
   for (const value of values) if (value instanceof LuaRef) value.release()
@@ -75,10 +77,23 @@ function functionRef(value: LuaValue): LuaRef {
   throw new TypeError('A FiveLab script did not provide an entry point')
 }
 
+/** A value to call as Lua would, failing as Lua does for numbers and the like. */
+function callable(value: LuaValue): LuaRef | LuaHostFunction {
+  if (value instanceof LuaRef || value instanceof LuaHostFunction) return value
+  let type: string
+  if (value === null || value === undefined) type = 'nil'
+  else if (value instanceof LuaVector) type = value.type
+  else if (value instanceof Uint8Array || typeof value === 'string') type = 'string'
+  else if (typeof value === 'boolean') type = 'boolean'
+  else type = 'number'
+  throw new LuaError(`attempt to call a ${type} value`)
+}
+
 /**
  * The Lua runtime of one resource on one side, set up like FiveM's: CfxLua
  * with FiveM's libraries and require, the Citizen table with natives that load
- * on first use, the promise library, and the Citizen scheduler with print.
+ * on first use, the promise library, the Citizen scheduler with print, and
+ * events.
  */
 export class ScriptRuntime implements NativeCaller {
   readonly state: LuaState
@@ -86,9 +101,12 @@ export class ScriptRuntime implements NativeCaller {
   #collect: LuaRef | undefined
   #resume: LuaRef | undefined
   #runFile: LuaRef | undefined
+  #flush: LuaRef | undefined
   #resultAsObject: LuaRef | undefined
   /** What Citizen.ResultAsObject2 set to turn object results into Lua values. */
   #deserializer: LuaValue = null
+  /** What Citizen.SetEventRoutine set first, which FiveM calls for each event. */
+  #eventRoutine: LuaValue | undefined
   /** Natives without an implementation that the scripts called, by hash. */
   readonly #unimplemented = new Set<bigint>()
 
@@ -163,25 +181,45 @@ export class ScriptRuntime implements NativeCaller {
   }
 
   /**
+   * Calls the event routine with an event the resource gets, as FiveM's Lua
+   * runtime does: with the event's name, its msgpack payload and its source.
+   * FiveLab's events script sets the routine before any resource script
+   * runs, as FiveM's scheduler does. Like FiveM, this reports errors.
+   */
+  triggerEvent(name: string, payload: Uint8Array, source: string): void {
+    const routine = this.#eventRoutine
+    if (routine === undefined) return
+    try {
+      this.state.call(callable(routine), name, payload, source)
+    } catch (error) {
+      if (!(error instanceof LuaError)) throw error
+      this.#reportRoutineError('system event handling', error)
+    } finally {
+      this.state.call(this.#flush!)
+    }
+  }
+
+  /**
    * Runs Citizen.ResultAsObject2's function on an object result. Like FiveM,
    * a failure is reported and reads as nil.
    */
   deserialize(bytes: Uint8Array): LuaValue {
-    const fn = this.#deserializer
     try {
-      if (!(fn instanceof LuaRef || fn instanceof LuaHostFunction)) {
-        throw new LuaError(`attempt to call a ${fn === null ? 'nil' : typeof fn} value`)
-      }
-      const [value = null] = this.state.call(fn, bytes)
+      const [value = null] = this.state.call(callable(this.#deserializer), bytes)
       return value
     } catch (error) {
       if (!(error instanceof LuaError)) throw error
-      const traceback = error.luaTraceback === undefined ? '' : `\n${error.luaTraceback}`
-      this.host.trace(
-        `Error running deserialization function for resource ${this.host.resource}: ${error.message}${traceback}\n`,
-      )
+      this.#reportRoutineError('deserialization', error)
       return null
     }
+  }
+
+  /** Reports an error in a function the runtime calls, as FiveM's Lua runtime does. */
+  #reportRoutineError(routine: string, error: LuaError): void {
+    const traceback = error.luaTraceback === undefined ? '' : `\n${error.luaTraceback}`
+    this.host.trace(
+      `Error running ${routine} function for resource ${this.host.resource}: ${error.message}${traceback}\n`,
+    )
   }
 
   trace(text: string): void {
@@ -234,15 +272,19 @@ export class ScriptRuntime implements NativeCaller {
       trace,
       'checked',
       checked,
+      'server',
+      !host.natives.client,
     )
     release(print, trace, checked)
     const [fivelab] = state.run('return {}', '=fivelab:shared')
     state.run(schedulerSource, '@fivelab:/scheduler.lua', hostTable, fivelab)
-    const [collect, resume, runFile] = state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
+    state.run(eventsSource, '@fivelab:/events.lua', hostTable, fivelab)
+    const [collect, resume, runFile, flush] = state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
     release(hostTable, fivelab)
     this.#collect = functionRef(collect)
     this.#resume = functionRef(resume)
     this.#runFile = functionRef(runFile)
+    this.#flush = functionRef(flush)
     state.setGlobal('dofile', null)
     state.setGlobal('loadfile', null)
   }
@@ -276,6 +318,15 @@ export class ScriptRuntime implements NativeCaller {
           release(this.#deserializer)
           this.#deserializer = args.get(1)
           return this.#resultAsObject
+        }),
+      ],
+      [
+        'SetEventRoutine',
+        state.hostFunction((args) => {
+          // FiveM keeps the first routine set, and ignores the others.
+          const routine = args.get(1) ?? null
+          if (this.#eventRoutine === undefined) this.#eventRoutine = routine
+          else release(routine)
         }),
       ],
       ['AwaitSentinel', state.cFunction(CFunction.awaitSentinel)],

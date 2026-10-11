@@ -22,6 +22,11 @@ export class Resource {
   readonly name: string
   readonly manager: ResourceManager
   readonly metadata: readonly (readonly [key: string, value: string])[]
+  /**
+   * The events the resource's scripts registered handlers for. FiveM keeps
+   * them for as long as the resource exists, across restarts.
+   */
+  readonly handledEvents = new Set<string>()
   readonly #files: ReadonlyMap<string, string | Uint8Array>
   #state: ResourceState = 'stopped'
   #runtime: ScriptRuntime | null = null
@@ -76,6 +81,16 @@ export class Resource {
     this.#destroyRuntime()
     this.#state = 'stopped'
     return true
+  }
+
+  /**
+   * Gives the resource an event, as FiveM's scripting component does: if its
+   * scripts handle the event, or "*", and it has a runtime to run them in.
+   */
+  handleEvent(name: string, payload: Uint8Array, source: string): void {
+    const runtime = this.#runtime
+    if (runtime === null || !(this.handledEvents.has(name) || this.handledEvents.has('*'))) return
+    this.enter(() => runtime.triggerEvent(name, payload, source))
   }
 
   /**

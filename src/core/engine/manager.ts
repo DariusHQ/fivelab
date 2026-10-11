@@ -8,6 +8,7 @@ import {
 } from '../natives/index.ts'
 import { CLOCK_START } from '../scripting/runtime.ts'
 import type { NativeContext } from './context.ts'
+import { EventManager } from './events.ts'
 import { engineNatives } from './natives/index.ts'
 import { Resource, type ResourceDefinition } from './resource.ts'
 
@@ -46,6 +47,7 @@ export class ResourceManager {
   readonly lua: LuaRuntime
   readonly output: ProcessOutput
   readonly natives = new NativeRegistry<NativeContext>()
+  readonly events = new EventManager(this)
   /**
    * The resources whose runtimes are running, the innermost call last, as
    * FiveM keeps its runtime stack.
@@ -108,11 +110,13 @@ export class ResourceManager {
   }
 
   /**
-   * Resumes the threads that are due in all runtimes. Like FiveM, it takes
-   * the due threads of every runtime before it resumes any, so that threads
-   * queued during the tick wait for the next one.
+   * Runs a tick as FiveM does: it triggers the queued events, then resumes
+   * the threads that are due in all runtimes. It takes the due threads of
+   * every runtime before it resumes any, so that threads queued during the
+   * tick wait for the next one.
    */
   tick(): void {
+    this.events.tick()
     const ticking = this.#ticking.map((resource) => ({ resource, runtime: resource.runtime! }))
     for (const { runtime } of ticking) runtime.collect()
     for (const { resource, runtime } of ticking) {
