@@ -57,6 +57,8 @@ export class ResourceManager {
   readonly runtimeStack: Resource[] = []
   readonly #time: () => number
   readonly #resources = new Map<string, Resource>()
+  /** The resources that provide each name, as their provide entries say, in the order they were added. */
+  readonly #provides = new Map<string, Resource[]>()
   /**
    * Resources with a runtime, in the order their runtimes were created: the
    * order FiveM resumes their threads in.
@@ -107,11 +109,27 @@ export class ResourceManager {
       resource.onStop.connect(() => this.log('resources', `Stopping resource ${name}\n`), -1000)
     }
     this.#resources.set(name, resource)
+    for (const provided of resource.entries('provide')) {
+      const providers = this.#provides.get(provided)
+      if (providers === undefined) this.#provides.set(provided, [resource])
+      else providers.push(resource)
+    }
     return resource
   }
 
-  getResource(name: string): Resource | undefined {
-    return this.#resources.get(name)
+  /**
+   * The resource named `name`, as FiveM finds resources. Unless told not
+   * to, it takes a resource that provides the name instead: when there is
+   * none of the name, the first, and when it is stopped, the first that
+   * started.
+   */
+  getResource(name: string, withProvides = true): Resource | undefined {
+    const resource = this.#resources.get(name)
+    if (!withProvides || (resource !== undefined && resource.state !== 'stopped')) return resource
+    for (const provider of this.#provides.get(name) ?? []) {
+      if (provider.state === 'started' || resource === undefined) return provider
+    }
+    return resource
   }
 
   get resources(): IterableIterator<Resource> {

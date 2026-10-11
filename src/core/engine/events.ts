@@ -83,7 +83,8 @@ export class EventManager {
         // NUI callbacks only ever go to their resource.
         for (const key of ['*', name]) {
           for (const resource of [...(this.#resources.get(key) ?? [])]) {
-            this.#manager.getResource(resource)?.handleEvent(name, payload, source)
+            // Events go to the resources that handle them, never to those that provide their names.
+            this.#manager.getResource(resource, false)?.handleEvent(name, payload, source)
           }
         }
       }

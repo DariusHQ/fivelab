@@ -596,3 +596,69 @@ print(StopResource('admin'), StopResource('chat'), GetResourceState('chat'))`,
     ])
   })
 })
+
+describe('resources that provide others', () => {
+  it('stand in for those that are missing or stopped', async () => {
+    const proc = await createProcess()
+    const { manager } = proc
+    const first = proc.add('first', {}, [['provide', 'mysql-async']])
+    const second = proc.add('second', {}, [['provide', 'mysql-async']])
+    // For a resource that does not exist, the first that provides it does,
+    // even when another started.
+    expect(manager.getResource('mysql-async')).toBe(first)
+    second.start()
+    expect(manager.getResource('mysql-async')).toBe(first)
+    expect(manager.getResource('mysql-async', false)).toBe(undefined)
+    // For a stopped resource, the first that started does.
+    const real = proc.add('oxmysql', {})
+    proc.add('shim', {}, [['provide', 'oxmysql']])
+    const bridge = proc.add('bridge', {}, [['provide', 'oxmysql']])
+    expect(manager.getResource('oxmysql')).toBe(real)
+    bridge.start()
+    expect(manager.getResource('oxmysql')).toBe(bridge)
+    expect(manager.getResource('oxmysql', false)).toBe(real)
+    real.start()
+    expect(manager.getResource('oxmysql')).toBe(real)
+  })
+
+  it('stand in for them in natives', async () => {
+    const proc = await createProcess()
+    proc.add('oxmysql', {})
+    proc.add('shim', {}, [
+      ['provide', 'oxmysql'],
+      ['provide', 'mysql-async'],
+      ['author', 'me'],
+    ])
+    proc
+      .add('app', {
+        'main.lua': `print(GetResourceState('oxmysql'), GetResourceState('mysql-async'))
+print(StartResource('mysql-async'), GetResourceState('shim'), GetResourceState('oxmysql'))
+print(GetResourceMetadata('oxmysql', 'author', 0), GetNumResourceMetadata('oxmysql', 'provide'))
+print(StopResource('oxmysql'), GetResourceState('shim'))`,
+      })
+      .start()
+    expect(proc.take().filter((line) => line.startsWith('[script:'))).toEqual([
+      '[script:app] stopped\tstopped',
+      '[script:app] 1\tstarted\tstarted',
+      '[script:app] me\t2',
+      '[script:app] 1\tstopped',
+    ])
+  })
+
+  it('do not get the events of those they provide', async () => {
+    const proc = await createProcess()
+    const handler = `AddEventHandler('ping', function() print('ping') end)`
+    const a = proc.add('a', { 'main.lua': handler })
+    a.start()
+    a.stop()
+    proc.add('provider', { 'main.lua': handler }, [
+      ['provide', 'a'],
+      ['server_script', 'main.lua'],
+    ])
+    proc.manager.getResource('provider')!.start()
+    proc.add('sender', { 'main.lua': `TriggerEvent('ping')` }).start()
+    expect(proc.take().filter((line) => line.startsWith('[script:'))).toEqual([
+      '[script:provider] ping',
+    ])
+  })
+})
