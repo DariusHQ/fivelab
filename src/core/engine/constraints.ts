@@ -1,3 +1,5 @@
+import { atoi } from './libc.ts'
+
 /** The build of FiveM that FiveLab follows, whose typings its natives come from. */
 export const FIVEM_BUILD = 37175
 
@@ -79,16 +81,6 @@ function check(constraint: (value: string) => boolean | string, value: string): 
   const result = constraint(value)
   if (result === true) return true
   return result === false ? 'no details specified' : result
-}
-
-/**
- * C's atoi: the integer at the start of a string, or 0. Integers that do not
- * fit in 32 bits give the closest that does, as on Windows.
- */
-function atoi(text: string): number {
-  const digits = /^[\t-\r ]*[+-]?\d+/.exec(text)
-  if (digits === null) return 0
-  return Math.min(Math.max(Number.parseInt(digits[0], 10), -(2 ** 31)), 2 ** 31 - 1)
 }
 
 /** The game builds of FiveM by the names of the updates that brought them. */
