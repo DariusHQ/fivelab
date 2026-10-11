@@ -642,6 +642,106 @@ print(pcall(GetNumResourceMetadata, 'a', nil))`,
     ])
   })
 
+  it('load the files of resources, by names relative to them', async () => {
+    const proc = await createProcess()
+    proc.add('other', { 'config.json': 'other' }, [])
+    proc.manager.addResource('elsewhere', {
+      files: { 'x.txt': 'elsewhere' },
+      metadata: [],
+      path: 'C:/server/resources/[local]/elsewhere',
+    })
+    proc
+      .add(
+        'a',
+        {
+          'main.lua': `for _, name in ipairs({
+    'config.json', '/config.json', '\\\\config.json', '//sub//x.txt', 'sub\\\\x.txt', './config.json',
+    'sub/../config.json', 'missing/../config.json', '../a/config.json', '../other/config.json',
+    'C:/config.json', 'Config.json', 'sub', '', 'missing.json',
+}) do
+    print(name, LoadResourceFile('a', name))
+end
+local data = LoadResourceFile('a', 'data.bin')
+print(#data, data:byte(1, -1))
+print(LoadResourceFile('elsewhere', 'x.txt'), LoadResourceFile('elsewhere', '../elsewhere/x.txt'))
+print(LoadResourceFile('missing', 'config.json'), pcall(LoadResourceFile, nil, nil))`,
+          'config.json': '{"a":1}',
+          'sub/x.txt': 'x',
+          'data.bin': new Uint8Array([0, 1, 0, 255]),
+        },
+        [['server_script', 'main.lua']],
+      )
+      .start()
+    expect(proc.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      '[script:a] config.json\t{"a":1}',
+      '[script:a] /config.json\t{"a":1}',
+      '[script:a] \\config.json\t{"a":1}',
+      '[script:a] //sub//x.txt\tx',
+      '[script:a] sub\\x.txt\tx',
+      '[script:a] ./config.json\t{"a":1}',
+      '[script:a] sub/../config.json\t{"a":1}',
+      '[script:a] missing/../config.json\t{"a":1}',
+      '[script:a] ../a/config.json\t{"a":1}',
+      '[script:a] ../other/config.json\tnil',
+      '[script:a] C:/config.json\tnil',
+      '[script:a] Config.json\tnil',
+      '[script:a] sub\tnil',
+      '[script:a] \tnil',
+      '[script:a] missing.json\tnil',
+      '[script:a] 4\t0\t1\t0\t255',
+      '[script:a] elsewhere\telsewhere',
+      '[citizen-scripting-core] script error in native 0000000076a9ee1f: Argument at index 1 was null.',
+      '[script:a] nil\tfalse\tnative 0000000076a9ee1f: Argument at index 1 was null.',
+      '[resources] Started resource a',
+    ])
+  })
+
+  it('load on clients only the files that servers sent, from where FiveM mounts them', async () => {
+    const proc = await createProcess({ side: 'client' })
+    proc.manager.addResource('elsewhere', {
+      files: { 'x.txt': 'x' },
+      metadata: [['file', 'x.txt']],
+      path: 'C:/elsewhere',
+    })
+    proc
+      .add(
+        'a',
+        {
+          'main.lua': `print(LoadResourceFile('a', 'data.json'), LoadResourceFile('a', '../a/data.json'))
+print(LoadResourceFile('a', 'secret.json'), LoadResourceFile('elsewhere', 'x.txt'))`,
+          'data.json': '{}',
+          'secret.json': '{}',
+        },
+        [
+          ['client_script', 'main.lua'],
+          ['file', 'data.json'],
+        ],
+      )
+      .start()
+    expect(proc.take().filter((line) => line.startsWith('[script:'))).toEqual([
+      '[script:a] {}\t{}',
+      '[script:a] nil\tnil',
+    ])
+  })
+
+  it('give the paths of resources on servers', async () => {
+    const proc = await createProcess()
+    proc.manager.addResource('elsewhere', {
+      files: {},
+      metadata: [],
+      path: 'C:/server/resources/[local]/elsewhere',
+    })
+    proc
+      .add('a', {
+        'main.lua': `print(GetResourcePath('a'), GetResourcePath('elsewhere'), GetResourcePath('missing'))`,
+      })
+      .start()
+    expect(proc.take().filter((line) => line.startsWith('[script:'))).toEqual([
+      '[script:a] resources/a\tC:/server/resources/[local]/elsewhere\tnil',
+    ])
+  })
+
   it('start and stop resources on servers, but not their own or those FiveM manages', async () => {
     const proc = await createProcess()
     proc.add('a', {})

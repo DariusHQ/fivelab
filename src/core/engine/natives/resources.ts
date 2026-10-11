@@ -1,5 +1,7 @@
 import { defineNative, type NativeDefinition, type Side } from '../../natives/index.ts'
 import type { NativeContext } from '../context.ts'
+import { normalizePath } from '../glob.ts'
+import type { Resource } from '../resource.ts'
 import { checkArgument } from './events.ts'
 
 /** The resources that FiveM's server keeps scripts from stopping: those it manages, and txAdmin's monitor. */
@@ -57,10 +59,31 @@ export function resourceNatives(side: Side): NativeDefinition<NativeContext>[] {
         return resource.entries(checkArgument(metadataKey, 1))[index] ?? null
       },
     ),
+    defineNative(
+      {
+        name: 'LOAD_RESOURCE_FILE',
+        result: 'char*',
+        params: ['char* resourceName', 'char* fileName'],
+      },
+      (ctx: NativeContext, resourceName, fileName) => {
+        // Like FiveM, it checks the file name before the resource name.
+        const name = checkArgument(fileName, 1)
+        const resource = ctx.manager.getResource(checkArgument(resourceName, 0))
+        const data = resource === undefined ? undefined : loadFile(resource, name)
+        if (data === undefined) return null
+        // Bytes keep the NULs a file may have, which a string result would end at.
+        return typeof data === 'string' ? new TextEncoder().encode(data) : data
+      },
+    ),
   ]
   if (side === 'client') return natives
   return [
     ...natives,
+    defineNative(
+      { name: 'GET_RESOURCE_PATH', result: 'char*', params: ['char* resourceName'] },
+      (ctx: NativeContext, resourceName) =>
+        ctx.manager.getResource(checkArgument(resourceName, 0))?.path ?? null,
+    ),
     defineNative(
       { name: 'START_RESOURCE', result: 'BOOL', params: ['char* resourceName'] },
       (ctx: NativeContext, resourceName) =>
@@ -87,4 +110,28 @@ export function resourceNatives(side: Side): NativeDefinition<NativeContext>[] {
       },
     ),
   ]
+}
+
+/**
+ * The file that LoadResourceFile reads, as FiveM finds it: names are
+ * relative to the resource, after any slashes they start with, and those
+ * with a drive or that lead out of the resource find nothing. Clients find
+ * only the files of resources that servers sent them.
+ *
+ * FiveLab resolves names as FiveM does on Windows, where backslashes also
+ * separate directories and .. may follow a directory that does not exist,
+ * but finds only the files of the exact name, as Linux does.
+ */
+function loadFile(resource: Resource, fileName: string): string | Uint8Array | undefined {
+  if (resource.path === '') return undefined
+  // Clients read files from where FiveM mounts what servers send.
+  if (resource.manager.side === 'client' && !resource.path.startsWith('resources:/')) {
+    return undefined
+  }
+  const name = fileName.replace(/^[/\\]+/, '')
+  if (/^[A-Za-z]:/.test(name)) return undefined
+  const root = normalizePath(resource.path)
+  const path = normalizePath(`${root}/${name}`)
+  if (!path.startsWith(`${root}/`)) return undefined
+  return resource.file(path.slice(root.length + 1))
 }
