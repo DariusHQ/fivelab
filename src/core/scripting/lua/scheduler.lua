@@ -22,9 +22,9 @@
 
 local host, fivelab = ...
 
-local type, error, select, tostring, tonumber, rawget = type, error, select, tostring, tonumber, rawget
+local type, error, select, rawget = type, error, select, rawget
 local pcall = pcall
-local math_floor, math_tointeger, math_huge = math.floor, math.tointeger, math.huge
+local math_floor, math_huge = math.floor, math.huge
 local string_format, string_sub = string.format, string.sub
 local table_concat, table_remove = table.concat, table.remove
 local coroutine_create = coroutine.create
@@ -37,6 +37,7 @@ local debug_getmetatable = debug.getmetatable
 
 local gameTimer = host.gameTimer
 local trace = host.trace
+local checked = host.checked
 
 local G = _G
 local Citizen = G.Citizen
@@ -92,19 +93,6 @@ local function reportThreadError(co, err)
     if not closed and errorMessage(closeError) ~= errorMessage(err) then
         trace(string_format('^1Error while closing to-be-closed variables: %s^7\n', errorMessage(closeError)))
     end
-end
-
--- The message of luaL_argerror, for functions FiveM implements in C.
-local function argError(index, name, expected, count, value)
-    local got
-    if count < index then
-        got = 'no value'
-    else
-        local mt = debug_getmetatable(value)
-        local typeName = mt and rawget(mt, '__name')
-        got = type(typeName) == 'string' and typeName or type(value)
-    end
-    return string_format("bad argument #%d to '%s' (%s expected, got %s)", index, name, expected, got)
 end
 
 --[[ The queue of waiting threads ]]
@@ -272,36 +260,23 @@ function Citizen.CreateThreadNow(fn)
     return createThreadNow(fn)
 end
 
-function Citizen.SetTimeout(...)
-    local ms, fn = ...
-    local timeout = tonumber(ms)
-    if timeout == nil then
-        error(argError(1, 'SetTimeout', 'number', select('#', ...), ms), 2)
-    end
+-- SetTimeout and ClearTimeout check their arguments as FiveM's C functions do.
+Citizen.SetTimeout = checked('n.', function(ms, fn)
     local thread = newThread(fn)
-    thread.delay = delayOf(timeout)
+    thread.delay = delayOf(ms)
     pending[#pending + 1] = thread
     return thread.id
-end
+end)
 
-function Citizen.ClearTimeout(...)
-    local id = ...
-    local number = tonumber(id)
-    if number == nil then
-        error(argError(1, 'ClearTimeout', 'number', select('#', ...), id), 2)
-    end
-    local integer = math_tointeger(number)
-    if integer == nil then
-        error("bad argument #1 to 'ClearTimeout' (number has no integer representation)", 2)
-    end
+Citizen.ClearTimeout = checked('i', function(id)
     for i = 1, #pending do
-        if pending[i].id == integer then
+        if pending[i].id == id then
             table_remove(pending, i)
             return true
         end
     end
     return false
-end
+end)
 
 function Citizen.Wait(ms)
     coroutine_yield(ms)
@@ -319,41 +294,16 @@ function Citizen.Await(promise)
     return promise.value
 end
 
-function Citizen.Trace(...)
-    local text = ...
-    local kind = type(text)
-    if kind == 'number' then
-        text = tostring(text)
-    elseif kind ~= 'string' then
-        error(argError(1, 'Trace', 'string', select('#', ...), text), 2)
-    end
-    trace(text)
-end
+-- Citizen.Trace and print are FiveM's, written in C: print converts its
+-- arguments with the global tostring and writes each piece as it goes.
+Citizen.Trace = host.Trace
+G.print = host.print
 
 -- Root-level aliases, as FiveM defines them.
 G.Wait = Citizen.Wait
 G.CreateThread = Citizen.CreateThread
 G.SetTimeout = Citizen.SetTimeout
 G.ClearTimeout = Citizen.ClearTimeout
-
--- print writes to the resource's console, converting values with the current
--- global tostring.
-function G.print(...)
-    local count = select('#', ...)
-    local parts = {}
-    local convert = G.tostring
-    for i = 1, count do
-        local part = convert((select(i, ...)))
-        local kind = type(part)
-        if kind == 'number' then
-            part = tostring(part)
-        elseif kind ~= 'string' then
-            error("'tostring' must return a string to 'print'", 2)
-        end
-        parts[i] = part
-    end
-    trace(table_concat(parts, '\t') .. '\n')
-end
 
 --[[ Entry points for the runtime ]]
 
@@ -386,4 +336,3 @@ end
 fivelab.createThreadNow = createThreadNow
 fivelab.flush = flush
 fivelab.errorMessage = errorMessage
-fivelab.argError = argError

@@ -104,13 +104,32 @@ late = SetTimeout(10, function() print('late') end)`)
     res.run(`print(pcall(SetTimeout))
 print(pcall(SetTimeout, 'soon', print))
 print(pcall(ClearTimeout, 1.5))
-print(pcall(ClearTimeout, {}))`)
+print(pcall(ClearTimeout, {}))
+print(ClearTimeout('2'), math.type(SetTimeout('10', function() end)))`)
     expect(res.take()).toBe(
       [
         "false\tbad argument #1 to 'SetTimeout' (number expected, got no value)",
         "false\tbad argument #1 to 'SetTimeout' (number expected, got string)",
         "false\tbad argument #1 to 'ClearTimeout' (number has no integer representation)",
         "false\tbad argument #1 to 'ClearTimeout' (number expected, got table)",
+        'false\tinteger',
+        '',
+      ].join('\n'),
+    )
+  })
+
+  it('name themselves in argument errors as the script calls them, as C functions do', async () => {
+    const res = await createResource()
+    res.run(`local later = Citizen.SetTimeout
+print(pcall(function() later(nil) end))
+print(pcall(function() Citizen.ClearTimeout(nil) end))
+print(pcall(Citizen.SetTimeout, nil))`)
+    expect(res.take()).toBe(
+      [
+        "false\t@test/client.lua:2: bad argument #1 to 'later' (number expected, got nil)",
+        "false\t@test/client.lua:3: bad argument #1 to 'ClearTimeout' (number expected, got nil)",
+        // pcall gives no name; the C function is found as the global SetTimeout.
+        "false\tbad argument #1 to 'SetTimeout' (number expected, got nil)",
         '',
       ].join('\n'),
     )
@@ -247,13 +266,34 @@ print(ok, err)`)
     )
   })
 
-  it('Citizen.Trace writes text as it is', async () => {
+  it('print writes each piece as it converts it, as FiveM does', async () => {
+    const res = await createResource()
+    res.run(`local original = tostring
+tostring = function(value) if value == 'bad' then return {} end return original(value) end
+print(pcall(function() print('a', 'b', 'bad', 'c') end))
+tostring = function() return 12 end
+print('number')
+tostring = original
+print(debug.getinfo(print, 'S').what, 'nul\\0inside')`)
+    expect(res.take()).toBe(
+      "a\tbfalse\t@test/client.lua:3: 'tostring' must return a string to 'print'\n" +
+        '12\n' +
+        'C\tnul\0inside\n',
+    )
+  })
+
+  it('Citizen.Trace writes text as it is, up to a NUL', async () => {
     const res = await createResource()
     res.run(`Citizen.Trace('no newline ')
 Citizen.Trace(42)
-print(pcall(Citizen.Trace))`)
+Citizen.Trace('cut\\0off')
+print(pcall(Citizen.Trace))
+print(pcall(function() Citizen.Trace({}) end))`)
     expect(res.take()).toBe(
-      "no newline 42false\tbad argument #1 to 'Trace' (string expected, got no value)\n",
+      'no newline 42cut' +
+        // pcall gives no name, and Citizen.Trace is no global.
+        "false\tbad argument #1 to '?' (string expected, got no value)\n" +
+        "false\t@test/client.lua:5: bad argument #1 to 'Trace' (string expected, got table)\n",
     )
   })
 

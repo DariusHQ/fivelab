@@ -168,6 +168,95 @@ static int fl_require(lua_State *L) {
   return luaL_error(L, "module '%s' not found", name);
 }
 
+/* Writes the string at `index` to the console with the function in upvalue 1. */
+static void fl_write(lua_State *L, int index) {
+  index = lua_absindex(L, index);
+  lua_pushvalue(L, lua_upvalueindex(1));
+  lua_pushvalue(L, index);
+  lua_call(L, 1, 0);
+}
+
+/*
+** FiveM's print: converts each argument with the global tostring, looked up
+** once per call, and writes each piece as soon as it has it, so the pieces
+** before a failed conversion are written.
+*/
+static int fl_print(lua_State *L) {
+  int n = lua_gettop(L);
+  lua_getglobal(L, "tostring");
+  for (int i = 1; i <= n; i++) {
+    lua_pushvalue(L, -1);
+    lua_pushvalue(L, i);
+    lua_call(L, 1, 1);
+    if (lua_tostring(L, -1) == NULL)
+      return luaL_error(L, "'tostring' must return a string to 'print'");
+    if (i > 1) {
+      lua_pushliteral(L, "\t");
+      fl_write(L, -1);
+      lua_pop(L, 1);
+    }
+    fl_write(L, -1);
+    lua_pop(L, 1);
+  }
+  lua_pushliteral(L, "\n");
+  fl_write(L, -1);
+  return 0;
+}
+
+/* FiveM's Citizen.Trace: writes a string, or a number, up to its first NUL. */
+static int fl_trace(lua_State *L) {
+  lua_pushstring(L, luaL_checkstring(L, 1));
+  fl_write(L, -1);
+  return 0;
+}
+
+static int fl_checkedcall_k(lua_State *L, int status, lua_KContext ctx) {
+  (void)status;
+  (void)ctx;
+  return lua_gettop(L);
+}
+
+/*
+** Calls the function in upvalue 2 after checking the arguments as upvalue 1
+** says, one character for each: 's' for a string, 'n' for a number and 'i'
+** for an integer, each taking what converts to one and passing on what it
+** converts to, or '.' for any value. This is how FiveLab implements in Lua
+** what FiveM implements in C: argument errors name the function the way the
+** script called it, and the function may yield.
+*/
+static int fl_checkedcall(lua_State *L) {
+  size_t count;
+  const char *checks = lua_tolstring(L, lua_upvalueindex(1), &count);
+  for (int i = 1; i <= static_cast<int>(count); i++) {
+    switch (checks[i - 1]) {
+      case 's':
+        luaL_checkstring(L, i);
+        break;
+      case 'n':
+        lua_pushnumber(L, luaL_checknumber(L, i));
+        lua_replace(L, i);
+        break;
+      case 'i':
+        lua_pushinteger(L, luaL_checkinteger(L, i));
+        lua_replace(L, i);
+        break;
+    }
+  }
+  lua_pushvalue(L, lua_upvalueindex(2));
+  lua_insert(L, 1);
+  lua_callk(L, lua_gettop(L) - 1, LUA_MULTRET, 0, fl_checkedcall_k);
+  return fl_checkedcall_k(L, LUA_OK, 0);
+}
+
+/* checked(checks, fn): fn with its arguments checked as fl_checkedcall describes. */
+static int fl_checked(lua_State *L) {
+  luaL_checkstring(L, 1);
+  luaL_checktype(L, 2, LUA_TFUNCTION);
+  lua_settop(L, 2);
+  lua_pushcclosure(L, fl_checkedcall, 2);
+  return 1;
+}
+
 /* Libraries in the order FiveM opens them. */
 enum {
   FL_LIB_BASE = 1 << 0,
@@ -642,6 +731,9 @@ enum {
   FL_CFUNC_POINTER_VALUE_FLOAT_INITIALIZED,
   FL_CFUNC_AWAIT_SENTINEL,
   FL_CFUNC_NOOP,
+  FL_CFUNC_PRINT,  /* upvalue: a function that writes to the console */
+  FL_CFUNC_TRACE,  /* upvalue: a function that writes to the console */
+  FL_CFUNC_CHECKED,
   FL_CFUNC_COUNT
 };
 
@@ -665,6 +757,9 @@ static const lua_CFunction fl_cfunctions[] = {
   fl_pointervaluefloatinitialized,
   fl_awaitsentinel_k,
   fl_noop,
+  fl_print,
+  fl_trace,
+  fl_checked,
 };
 
 static_assert(sizeof(fl_cfunctions) / sizeof(fl_cfunctions[0]) == FL_CFUNC_COUNT, "one C function per number");

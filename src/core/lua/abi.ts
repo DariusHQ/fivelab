@@ -139,6 +139,16 @@ export const CFunction = {
   pointerValueFloatInitialized: 16,
   awaitSentinel: 17,
   noop: 18,
+  /** FiveM's print. Upvalue: a function that writes text to the console. */
+  print: 19,
+  /** Citizen.Trace. Upvalue: a function that writes text to the console. */
+  trace: 20,
+  /**
+   * checked(checks, fn) returns fn behind a C function that checks its
+   * arguments as FiveM's C functions do, one character of `checks` for each:
+   * 's' a string, 'n' a number, 'i' an integer, '.' any value.
+   */
+  checked: 21,
 } as const
 
 /** How to read a native result, in the order of FiveM's fx::invoker::MetaField. */

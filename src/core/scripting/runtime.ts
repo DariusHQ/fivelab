@@ -189,16 +189,27 @@ export class ScriptRuntime implements NativeCaller {
     state.setGlobal('promise', promise)
     release(promise)
 
+    const write = state.hostFunction((args) => {
+      host.trace(String(args.get(1)))
+    })
+    const print = state.cFunction(CFunction.print, write)
+    const trace = state.cFunction(CFunction.trace, write)
+    const checked = state.cFunction(CFunction.checked)
     const [hostTable] = state.run(
       TABLE,
       '=fivelab:host',
       'gameTimer',
       state.hostFunction(() => host.gameTimer()),
       'trace',
-      state.hostFunction((args) => {
-        host.trace(String(args.get(1)))
-      }),
+      write,
+      'print',
+      print,
+      'Trace',
+      trace,
+      'checked',
+      checked,
     )
+    release(print, trace, checked)
     const [fivelab] = state.run('return {}', '=fivelab:shared')
     state.run(schedulerSource, '@fivelab:/scheduler.lua', hostTable, fivelab)
     const [tick, runFile] = state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
