@@ -1,6 +1,6 @@
 import { ScriptRuntime, type ScriptHost } from '../scripting/runtime.ts'
 import { NativeContext } from './context.ts'
-import { FileTree, glob } from './glob.ts'
+import { FileTree, glob, normalizePath } from './glob.ts'
 import { Hook } from './hook.ts'
 import type { ResourceManager } from './manager.ts'
 import { readManifest, type MetadataEntry, type MetadataLocation } from './manifest.ts'
@@ -227,10 +227,24 @@ export class Resource {
     for (const path of lua) {
       // A script that stopped the resource took the runtime the rest would load into.
       if (this.#runtime !== runtime) break
-      const source = this.#files.get(path)
+      const source = this.#openScript(path)
       const loaded = source !== undefined && this.enter(() => runtime.runFile(path, source))
       if (!loaded) this.manager.log('citizen-scripting-core', `Failed to load script ${path}.\n`)
     }
+  }
+
+  /**
+   * The source of a script, as FiveM's script host opens it: @resource/file
+   * names a file of another resource, which need not have started.
+   */
+  #openScript(path: string): string | Uint8Array | undefined {
+    const slash = path.indexOf('/')
+    if (path.length > 1 && path.startsWith('@') && slash !== -1) {
+      return this.manager
+        .getResource(path.slice(1, slash))
+        ?.file(normalizePath(path.slice(slash + 1)))
+    }
+    return this.#files.get(normalizePath(path))
   }
 
   #destroyRuntime(): void {

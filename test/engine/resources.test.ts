@@ -89,6 +89,44 @@ server_scripts { 'first.lua', 'second.lua' }`,
     ])
   })
 
+  it('run scripts of other resources, named as @resource/file, under those names', async () => {
+    const proc = await createProcess()
+    proc.add(
+      'lib',
+      {
+        'init.lua': `print('lib init in', GetCurrentResourceName())`,
+        'broken.lua': `local = 1`,
+        'error.lua': `error('oops')`,
+      },
+      [],
+    )
+    proc
+      .add('a', {
+        'fxmanifest.lua': `fx_version 'cerulean'
+game 'gta5'
+shared_scripts {
+    '@lib/init.lua',
+    '@lib/./init.lua',
+    '@lib/broken.lua',
+    '@lib/error.lua',
+    '@lib/missing.lua',
+    '@missing/init.lua',
+}`,
+      })
+      .start()
+    expect(proc.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      '[script:a] lib init in\ta',
+      '[script:a] lib init in\ta',
+      "[script:a] Error parsing script @lib/broken.lua in resource a: @lib/broken.lua:1: <name> expected near '='",
+      '[citizen-scripting-core] Failed to load script @lib/broken.lua.',
+      '[script:a] ^1SCRIPT ERROR: @lib/error.lua:1: oops^7',
+      '[citizen-scripting-core] Failed to load script @lib/missing.lua.',
+      '[citizen-scripting-core] Failed to load script @missing/init.lua.',
+      '[resources] Started resource a',
+    ])
+  })
+
   it('skip scripts they do not have, report those that do not load, and go on with the others', async () => {
     const proc = await createProcess()
     proc

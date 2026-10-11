@@ -134,10 +134,12 @@ export class ScriptRuntime implements NativeCaller {
   /**
    * Loads and runs a script file of the resource as FiveM does: in its own
    * thread, so it may wait, with errors reported to the console. Returns
-   * false if the file does not compile.
+   * false if the file does not compile. `path` is relative to the resource,
+   * or names a file of another resource as @resource/file.
    */
   runFile(path: string, source: string | Uint8Array): boolean {
-    const name = `@${this.host.resource}/${path}`
+    // Files of other resources, @resource/file, keep their name.
+    const name = path.startsWith('@') ? path : `@${this.host.resource}/${path}`
     let chunk: LuaRef
     try {
       chunk = this.state.load(source, `@${name}`)
