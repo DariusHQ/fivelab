@@ -103,7 +103,8 @@ server_scripts { 'first.lua', 'second.lua' }`,
       "[script:a] Error parsing script @a/broken.lua in resource a: @a/broken.lua:1: <name> expected near '='",
       '[citizen-scripting-core] Failed to load script broken.lua.',
       '[script:a] ok',
-      '[resources] Started resource a',
+      '[resources:a] ^3Warning: could not find server_script `missing.lua` (defined in :0)^7',
+      '[resources] Started resource a (1 warning)',
     ])
   })
 
@@ -179,6 +180,47 @@ CreateThread(function() print('never runs') end)`,
     expect(proc.diagnostics).toEqual([
       'a: a was started while it started. FiveM would then create another runtime for it and load its scripts again in both runtimes, which FiveLab does not emulate: it keeps the runtime it has.',
     ])
+  })
+})
+
+describe('servers starting resources', () => {
+  it('warn about the files that manifests name and resources do not have', async () => {
+    const proc = await createProcess()
+    proc
+      .add('a', {
+        'fxmanifest.lua': `fx_version 'cerulean'
+game 'gta5'
+server_script 'main.lua'
+server_script 'missing.lua'
+client_scripts { 'client/*.lua', 'nope/*.lua' }
+files { 'html/index.html' }`,
+        'main.lua': '',
+        'client/x.js': '',
+      })
+      .start()
+    expect(proc.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      // client/*.lua matched nothing, but client/ exists, so it goes unreported.
+      '[resources:a] ^3Warning: could not find client_script `nope/*.lua` (defined in fxmanifest.lua:5)^7',
+      '[resources:a] ^3Warning: could not find server_script `missing.lua` (defined in fxmanifest.lua:4)^7',
+      '[resources:a] ^3Warning: could not find file `html/index.html` (defined in fxmanifest.lua:6)^7',
+      '[resources] Started resource a (3 warnings)',
+    ])
+  })
+
+  it('count one warning as one, and name no place for entries no manifest defined', async () => {
+    const proc = await createProcess()
+    proc.add('a', {}, [['shared_script', 'missing.lua']]).start()
+    expect(proc.take()).toEqual([
+      '[resources:a] ^3Warning: could not find shared_script `missing.lua` (defined in :0)^7',
+      '[resources] Started resource a (1 warning)',
+    ])
+  })
+
+  it('do not warn on clients', async () => {
+    const proc = await createProcess({ side: 'client' })
+    proc.add('a', {}, [['client_script', 'missing.lua']]).start()
+    expect(proc.take()).toEqual([])
   })
 })
 

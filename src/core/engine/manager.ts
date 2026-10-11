@@ -99,10 +99,7 @@ export class ResourceManager {
     const resource = new Resource(this, name, definition)
     if (this.side === 'server') {
       // FiveM's server reports the resources it starts and stops.
-      resource.onStart.connect(
-        () => this.log('resources', `Started resource ${name}\n`),
-        99_999_999,
-      )
+      resource.onStart.connect(() => this.#reportStart(resource), 99_999_999)
       resource.onStop.connect(() => this.log('resources', `Stopping resource ${name}\n`), -1000)
     }
     this.#resources.set(name, resource)
@@ -138,12 +135,45 @@ export class ResourceManager {
     this.output.write(channel, text)
   }
 
+  /** Writes a warning to the console on `channel`, as FiveM's console::PrintWarning does. */
+  logWarning(channel: string, text: string): void {
+    this.log(channel, colored('^3Warning: ', text))
+  }
+
+  /** Writes an error to the console on `channel`, as FiveM's console::PrintError does. */
+  logError(channel: string, text: string): void {
+    this.log(channel, colored('^1Error: ', text))
+  }
+
   /** The Lua code that defines the native called `name`, for Citizen.LoadNative. */
   nativeWrapper(name: string): string | null {
     const native = this.natives.byName(name)
     return native === undefined
       ? null
       : nativeWrapper(native, name, { direct: this.side === 'client' })
+  }
+
+  /**
+   * Reports a resource that started as FiveM's server does, warning about
+   * the files its manifest names that it does not have.
+   */
+  #reportStart(resource: Resource): void {
+    let warnings = 0
+    for (const key of ['client_script', 'server_script', 'shared_script', 'file']) {
+      for (const { value, location, found } of resource.missingEntries(key)) {
+        // Patterns that only matched nothing go unreported.
+        if (found) continue
+        const file = location?.file ?? ''
+        const where = `${file.slice(file.lastIndexOf('/') + 1)}:${location?.line ?? 0}`
+        this.logWarning(
+          `resources:${resource.name}`,
+          `could not find ${key} \`${value}\` (defined in ${where})\n`,
+        )
+        warnings++
+      }
+    }
+    const counted = warnings === 0 ? '' : ` (${warnings} warning${warnings === 1 ? '' : 's'})`
+    this.log('resources', `Started resource ${resource.name}${counted}\n`)
   }
 
   /** @internal Called by a resource that created its runtime. */
@@ -155,4 +185,11 @@ export class ResourceManager {
   removeRuntime(resource: Resource): void {
     this.#ticking.splice(this.#ticking.indexOf(resource), 1)
   }
+}
+
+/** Puts `prefix` before `text`, and ends its color before the line breaks at its end, as FiveM does. */
+function colored(prefix: string, text: string): string {
+  const message = prefix + text
+  const end = message.replace(/\n+$/, '').length
+  return `${message.slice(0, end)}^7${message.slice(end)}`
 }

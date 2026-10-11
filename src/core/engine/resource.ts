@@ -3,7 +3,7 @@ import { NativeContext } from './context.ts'
 import { FileTree, glob } from './glob.ts'
 import { Hook } from './hook.ts'
 import type { ResourceManager } from './manager.ts'
-import { readManifest, type MetadataEntry } from './manifest.ts'
+import { readManifest, type MetadataEntry, type MetadataLocation } from './manifest.ts'
 
 /** The states of a resource, named as GetResourceState names them. */
 export type ResourceState = 'uninitialized' | 'stopped' | 'starting' | 'started' | 'stopping'
@@ -19,6 +19,14 @@ export interface ResourceDefinition {
   readonly metadata?: readonly MetadataEntry[]
   /** Where the resource is, as FiveM's messages name it. Defaults to resources/<name>. */
   readonly path?: string
+}
+
+/** A manifest entry that names no files. */
+export interface MissingEntry {
+  readonly value: string
+  readonly location: MetadataLocation | undefined
+  /** Whether every part the value spells out exists, so that only its pattern matched nothing. */
+  readonly found: boolean
 }
 
 /**
@@ -82,9 +90,23 @@ export class Resource {
 
   /** The files that the manifest entries with `key` name, as FiveM globs them: those of each entry in turn. */
   globEntries(key: string): string[] {
-    this.#tree ??= new FileTree(this.path, this.#files.keys())
-    const tree = this.#tree
+    const tree = this.#fileTree()
     return this.entries(key).flatMap((value) => glob(tree, value).files)
+  }
+
+  /**
+   * The manifest entries with `key` that name no files, with where they were
+   * defined and whether every part they spell out exists, as FiveM's server
+   * looks for them to warn about them.
+   */
+  missingEntries(key: string): MissingEntry[] {
+    const tree = this.#fileTree()
+    return this.metadata
+      .filter(([name]) => name === key)
+      .flatMap(([, value, location]) => {
+        const { files, found } = glob(tree, value)
+        return files.length === 0 ? [{ value, location, found }] : []
+      })
   }
 
   /** The scripts the resource runs on its process's side: its shared scripts, then its client or server scripts. */
@@ -161,6 +183,11 @@ export class Resource {
         }
       }
     }
+  }
+
+  #fileTree(): FileTree {
+    this.#tree ??= new FileTree(this.path, this.#files.keys())
+    return this.#tree
   }
 
   /** Ends a start that a hook failed, as FiveM does. */
