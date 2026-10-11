@@ -267,3 +267,140 @@ CreateThread(function() print(GetCurrentResourceName(), GetInvokingResource()) e
     }
   })
 })
+
+describe('resource natives', () => {
+  it('tell the state of resources, which is starting until they started', async () => {
+    const proc = await createProcess()
+    const a = proc.add('a', { 'main.lua': `print('loading', GetResourceState('a'))` })
+    proc
+      .add('watcher', {
+        'main.lua': `for _, name in ipairs({ 'onResourceStarting', 'onResourceStart', 'onServerResourceStart', 'onResourceStop', 'onServerResourceStop' }) do
+    AddEventHandler(name, function(resource) print(name, GetResourceState(resource)) end)
+end`,
+      })
+      .start()
+    proc.tickAt(0)
+    proc.take()
+    a.start()
+    proc.tickAt(1)
+    a.stop()
+    proc.tickAt(2)
+    expect(proc.take()).toEqual([
+      '[script:watcher] onResourceStarting\tstarting',
+      '[citizen-scripting-core] Creating script environments for a',
+      '[script:a] loading\tstarting',
+      '[script:watcher] onResourceStart\tstarting',
+      '[resources] Started resource a',
+      '[script:watcher] onServerResourceStart\tstarted',
+      '[script:watcher] onResourceStop\tstarted',
+      '[resources] Stopping resource a',
+      '[script:watcher] onServerResourceStop\tstopped',
+    ])
+  })
+
+  it('fail to tell the state of no resource', async () => {
+    const proc = await createProcess()
+    proc
+      .add('a', {
+        'main.lua': `print(GetResourceState('a'), GetResourceState('missing'))
+print(pcall(GetResourceState, nil))`,
+      })
+      .start()
+    expect(proc.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      '[script:a] starting\tmissing',
+      '[citizen-scripting-core] script error in native 000000004039b485: Argument at index 0 was null.',
+      '[script:a] false\tnative 000000004039b485: Argument at index 0 was null.',
+      '[resources] Started resource a',
+    ])
+  })
+
+  it('list the resources as of the last GetNumResources, for every runtime', async () => {
+    const proc = await createProcess()
+    proc
+      .add('a', {
+        'main.lua': `print(GetResourceByFindIndex(0))
+local count = GetNumResources()
+for i = -1, count do print(i, GetResourceByFindIndex(i)) end`,
+      })
+      .start()
+    proc.add('b', {})
+    proc
+      .add('c', {
+        'main.lua': `print(GetResourceByFindIndex(1))
+print(GetNumResources(), GetResourceByFindIndex(1), GetResourceByFindIndex(2))`,
+      })
+      .start()
+    expect(proc.take().filter((line) => line.startsWith('[script:'))).toEqual([
+      '[script:a] nil',
+      '[script:a] -1\tnil',
+      '[script:a] 0\ta',
+      '[script:a] 1\tnil',
+      '[script:c] nil',
+      '[script:c] 3\tb\tc',
+    ])
+  })
+
+  it('give the entries of manifests by key, in order', async () => {
+    const proc = await createProcess()
+    proc
+      .add(
+        'a',
+        {
+          'main.lua': `print(GetNumResourceMetadata('a', 'dependency'), GetResourceMetadata('a', 'dependency', 0), GetResourceMetadata('a', 'dependency', 1))
+print(GetResourceMetadata('a', 'dependency', 2), GetResourceMetadata('a', 'dependency', -1))
+print(GetNumResourceMetadata('a', 'author'), GetResourceMetadata('a', 'author', 0), GetNumResourceMetadata('a', 'Author'))
+print(GetNumResourceMetadata('missing', nil), GetResourceMetadata('missing', nil, 0))
+print(pcall(GetNumResourceMetadata, 'a', nil))`,
+        },
+        [
+          ['dependency', 'x'],
+          ['server_script', 'main.lua'],
+          ['author', 'me'],
+          ['dependency', 'y'],
+        ],
+      )
+      .start()
+    expect(proc.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      '[script:a] 2\tx\ty',
+      '[script:a] nil\tnil',
+      '[script:a] 1\tme\t0',
+      '[script:a] 0\tnil',
+      '[citizen-scripting-core] script error in native 000000000776e864: Argument at index 1 was null.',
+      '[script:a] false\tnative 000000000776e864: Argument at index 1 was null.',
+      '[resources] Started resource a',
+    ])
+  })
+
+  it('start and stop resources on servers, but not their own or those FiveM manages', async () => {
+    const proc = await createProcess()
+    proc.add('a', {})
+    proc.add('chat', {}).start()
+    proc
+      .add('admin', {
+        'main.lua': `print(StartResource('a'), GetResourceState('a'))
+print(StartResource('a'), StartResource('missing'), StopResource('missing'))
+print(StopResource('a'), GetResourceState('a'))
+print(StopResource('a'))
+print(StopResource('admin'), StopResource('chat'), GetResourceState('chat'))`,
+      })
+      .start()
+    expect(proc.take()).toEqual([
+      '[resources] Started resource chat',
+      '[citizen-scripting-core] Creating script environments for admin',
+      '[resources] Started resource a',
+      '[script:admin] 1\tstarted',
+      '[script:admin] 1\tfalse\tfalse',
+      '[resources] Stopping resource a',
+      '[script:admin] 1\tstopped',
+      '[script:admin] 1',
+      '[script:admin] false\tfalse\tstarted',
+      '[resources] Started resource admin',
+    ])
+    expect(proc.diagnostics).toEqual([
+      'admin: StopResource cannot stop admin: FiveM keeps resources from stopping themselves.',
+      'admin: StopResource cannot stop chat: FiveM keeps scripts from stopping spawnmanager, mapmanager, baseevents, chat, sessionmanager, monitor.',
+    ])
+  })
+})
