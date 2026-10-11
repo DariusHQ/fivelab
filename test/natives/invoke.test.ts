@@ -208,6 +208,26 @@ print(pcall(Citizen.InvokeNative, 0x2100, 'abc', 4))`,
       '3\n2\nfalse\tnative 0000000000002100: arg[0]: buffer length too large (4 > 3)\n',
     )
   })
+
+  it('give the bytes of strings, past their NULs, to natives that read them as bytes', async () => {
+    const bytes = defineNative(
+      { name: 'TAKE_BYTES', hash: 0x2101n, result: 'char*', params: ['bytes data'] },
+      (_ctx, data) => (data === null ? 'NULL' : `[${data.join(',')}]`),
+    )
+    const { output } = await run(
+      String.raw`print(Citizen.InvokeNative(0x2101, 'a\0b\255', Citizen.ResultAsString()))
+print(Citizen.InvokeNative(0x2101, '', Citizen.ResultAsString()))
+print(Citizen.InvokeNative(0x2101, nil, Citizen.ResultAsString()))
+print(pcall(Citizen.InvokeNative, 0x2101, 1))
+print(pcall(Citizen.InvokeNative, 0x2101, Citizen.PointerValueInt()))`,
+      [bytes],
+    )
+    expect(output).toBe(
+      '[97,0,98,255]\n[]\nNULL\n' +
+        'false\tnative 0000000000002101: arg[0]: expected pointer, got non-zero integer\n' +
+        'false\tnative 0000000000002101: arg[0]: expected string\n',
+    )
+  })
 })
 
 describe('results', () => {

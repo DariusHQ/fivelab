@@ -129,6 +129,7 @@ export function nativeWrapper(
         break
       case 'string':
       case 'buffer':
+      case 'bytes':
         args.push(`_ts(${param})`)
         break
       default:

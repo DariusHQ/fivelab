@@ -133,7 +133,7 @@ export function prepareNative<Ctx>(native: NativeDeclaration<Ctx>): PreparedNati
       slots.push(BUFFER_SLOT, VALUE_SLOT)
     } else if (info.kind === 'buffer') {
       slots.push(BUFFER_SLOT)
-    } else if (info.kind === 'string' || info.kind === 'func') {
+    } else if (info.kind === 'string' || info.kind === 'bytes' || info.kind === 'func') {
       slots.push(STRING_SLOT)
     } else {
       for (let i = info.kind === 'vector3' ? 3 : 1; i > 0; i--) slots.push(VALUE_SLOT)
@@ -500,6 +500,12 @@ function decodeArguments<Ctx>(
       case 'func':
         values.push(
           call.isPointer(slot) ? readCString(lua, low, call.types[slot]! & ARG_SIZE) : null,
+        )
+        slot++
+        break
+      case 'bytes':
+        values.push(
+          call.isPointer(slot) ? lua.heap.slice(low, low + (call.types[slot]! & ARG_SIZE)) : null,
         )
         slot++
         break

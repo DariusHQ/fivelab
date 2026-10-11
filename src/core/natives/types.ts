@@ -46,9 +46,11 @@ export type PointerType = `${IntType | 'long' | 'float' | 'BOOL' | 'bool' | 'Vec
 
 /**
  * 'buffer' is FiveLab's name for a char* parameter that FiveM reads as a
- * buffer whose length is the next argument, such as an event payload.
+ * buffer whose length is the next argument, such as an event payload, and
+ * 'bytes' for one that a native reads as bytes rather than as text: all
+ * those of the string the script passed, NULs included.
  */
-export type ParamType = ValueType | PointerType | 'buffer'
+export type ParamType = ValueType | PointerType | 'buffer' | 'bytes'
 
 /** 'Any*' results are pointers, which FiveM reads as 64-bit integers. */
 export type ResultType = ValueType | 'Any*' | 'void'
@@ -56,11 +58,12 @@ export type ResultType = ValueType | 'Any*' | 'void'
 /**
  * How values of a type travel through a call's 64-bit slots: integers in
  * their low 32 bits, longs in all 64, floats as 32-bit float bits, booleans
- * as integers, strings and function references as pointers to C strings,
- * vectors as three float slots and objects as a pointer and a length.
+ * as integers, strings, their bytes and function references as pointers to
+ * C strings, vectors as three float slots and objects as a pointer and a
+ * length.
  */
 export type NativeKind =
-  'int' | 'long' | 'float' | 'bool' | 'string' | 'buffer' | 'vector3' | 'func' | 'object'
+  'int' | 'long' | 'float' | 'bool' | 'string' | 'buffer' | 'bytes' | 'vector3' | 'func' | 'object'
 
 export interface TypeInfo {
   /** The type as declared, such as 'Entity', 'float*' or 'char*'. */
@@ -99,6 +102,7 @@ function kindOf(base: string): NativeKind | undefined {
 export function typeInfo(name: string): TypeInfo {
   if (name === 'char*') return { name, kind: 'string', pointer: false, unsigned: false }
   if (name === 'buffer') return { name, kind: 'buffer', pointer: false, unsigned: false }
+  if (name === 'bytes') return { name, kind: 'bytes', pointer: false, unsigned: false }
   const pointer = name.endsWith('*')
   const base = pointer ? name.slice(0, -1) : name
   const kind = kindOf(base)
@@ -134,7 +138,7 @@ type PointeeValue<B extends string> = B extends 'Vector3'
 /** The JavaScript value a native implementation receives for a parameter of type T. */
 export type ArgValue<T extends ParamType> = T extends 'char*' | 'func'
   ? string | null
-  : T extends 'buffer'
+  : T extends 'buffer' | 'bytes'
     ? Uint8Array | null
     : T extends `${infer B}*`
       ? NativePointer<PointeeValue<B>>
