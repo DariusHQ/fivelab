@@ -56,6 +56,33 @@ export interface ScriptHost {
   log(channel: string, text: string): void
   /** Reports a mistake in how a script uses FiveM that FiveLab noticed. */
   diagnose(message: string): void
+  /**
+   * Sets a boundary of the innermost call into a runtime, as FiveM's script
+   * host keeps them for stack traces: its start, the thread the call
+   * resumes, or its end, where the call last left the runtime, as
+   * TriggerEvent does. Boundaries are ids the runtime gives; null clears one.
+   */
+  submitBoundary(which: keyof StackBoundaries, id: bigint | null): void
+  /**
+   * The stack trace of the runtimes that are running, as FiveM's
+   * FORMAT_STACK_TRACE formats it for SCRIPT ERROR.
+   */
+  formatStackTrace(): string
+}
+
+/** The boundaries of a call into a runtime; see ScriptHost.submitBoundary. */
+export interface StackBoundaries {
+  readonly start: bigint | null
+  readonly end: bigint | null
+}
+
+/** A frame of a stack trace, as FiveM's Lua runtime gives them. */
+export interface StackFrame {
+  /** The name the caller knows the function by, or [global chunk]. */
+  readonly name: string
+  /** The name of the chunk, such as @resource/client.lua. */
+  readonly file: string
+  readonly line: number
 }
 
 /** Collects name and value pairs into a table. */
@@ -68,7 +95,7 @@ return t`
 
 /** Reads the entry points the FiveLab scripts leave in their shared table. */
 const ENTRY_POINTS = `local fivelab = ...
-return fivelab.collect, fivelab.resume, fivelab.runFile, fivelab.flush`
+return fivelab.collect, fivelab.resume, fivelab.runFile, fivelab.flush, fivelab.walkStack`
 
 function release(...values: LuaValue[]): void {
   for (const value of values) if (value instanceof LuaRef) value.release()
@@ -104,6 +131,9 @@ export class ScriptRuntime implements NativeCaller {
   #resume: LuaRef | undefined
   #runFile: LuaRef | undefined
   #flush: LuaRef | undefined
+  #walkStack: LuaRef | undefined
+  /** The frames walkStack collects while the scheduler walks them. */
+  #walked: StackFrame[] | undefined
   #resultAsObject: LuaRef | undefined
   /** What Citizen.ResultAsObject2 set to turn object results into Lua values. */
   #deserializer: LuaValue = null
@@ -218,12 +248,38 @@ export class ScriptRuntime implements NativeCaller {
     }
   }
 
-  /** Reports an error in a function the runtime calls, as FiveM's Lua runtime does. */
-  #reportRoutineError(routine: string, error: LuaError): void {
+  /**
+   * The frames of the thread the runtime is resuming, the innermost, as
+   * FiveM's stack trace routine walks them: those of the call into the
+   * runtime between its boundaries, past where it last left the runtime and
+   * up to where it started. When the thread failed, or none is resuming, it
+   * walks the runtime's main thread instead, where resource scripts seldom
+   * run. Throws a LuaError if the walk fails, which describeRoutineError
+   * describes as FiveM does.
+   */
+  walkStack(boundaries: StackBoundaries): StackFrame[] {
+    if (this.state.dead !== undefined || this.state.closed) return []
+    const walked = this.#walked
+    const frames: StackFrame[] = []
+    this.#walked = frames
+    try {
+      // FiveM calls its stack trace routine on the runtime's main thread.
+      this.state.callOnMain(this.#walkStack!, boundaries.end, boundaries.start)
+    } finally {
+      this.#walked = walked
+    }
+    return frames
+  }
+
+  /** How FiveM's Lua runtime reports an error in a routine it calls, such as the event routine. */
+  describeRoutineError(routine: string, error: LuaError): string {
     const traceback = error.luaTraceback === undefined ? '' : `\n${error.luaTraceback}`
-    this.host.trace(
-      `Error running ${routine} function for resource ${this.host.resource}: ${error.message}${traceback}\n`,
-    )
+    return `Error running ${routine} function for resource ${this.host.resource}: ${error.message}${traceback}\n`
+  }
+
+  /** Reports an error in a routine the runtime calls, as FiveM's Lua runtime does. */
+  #reportRoutineError(routine: string, error: LuaError): void {
+    this.host.trace(this.describeRoutineError(routine, error))
   }
 
   trace(text: string): void {
@@ -278,17 +334,31 @@ export class ScriptRuntime implements NativeCaller {
       checked,
       'server',
       !host.natives.client,
+      'formatStackTrace',
+      state.hostFunction(() => host.formatStackTrace()),
+      'clearBoundaryStart',
+      state.hostFunction(() => host.submitBoundary('start', null)),
+      'stackFrame',
+      state.hostFunction((args) => {
+        const [name, file, line] = args.all()
+        this.#walked?.push({ name: String(name), file: String(file), line: Number(line) })
+      }),
     )
     release(print, trace, checked)
     const [fivelab] = state.run('return {}', '=fivelab:shared')
     state.run(schedulerSource, '@fivelab:/scheduler.lua', hostTable, fivelab)
     state.run(eventsSource, '@fivelab:/events.lua', hostTable, fivelab)
-    const [collect, resume, runFile, flush] = state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
+    const [collect, resume, runFile, flush, walkStack] = state.run(
+      ENTRY_POINTS,
+      '=fivelab:entry',
+      fivelab,
+    )
     release(hostTable, fivelab)
     this.#collect = functionRef(collect)
     this.#resume = functionRef(resume)
     this.#runFile = functionRef(runFile)
     this.#flush = functionRef(flush)
+    this.#walkStack = functionRef(walkStack)
     state.setGlobal('dofile', null)
     state.setGlobal('loadfile', null)
   }
@@ -334,6 +404,14 @@ export class ScriptRuntime implements NativeCaller {
         }),
       ],
       ['AwaitSentinel', state.cFunction(CFunction.awaitSentinel)],
+      [
+        'SubmitBoundaryStart',
+        state.hostFunction((args) => host.submitBoundary('start', args.integer(1))),
+      ],
+      [
+        'SubmitBoundaryEnd',
+        state.hostFunction((args) => host.submitBoundary('end', args.integer(1))),
+      ],
       // FiveM ignores tick routines. It keeps the first boundary and stack
       // trace routines it is given, which its scheduler gives before any
       // resource script runs, so calls from scripts change nothing.

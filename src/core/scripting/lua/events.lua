@@ -12,10 +12,11 @@
 
     This script also sets up msgpack and json as FiveM's scheduler does.
 
-    Loaded by the runtime after the scheduler, with its host functions.
+    Loaded by the runtime after the scheduler, with its host functions and
+    the table the FiveLab scripts share.
 ]]
 
-local host = ...
+local host, fivelab = ...
 
 local type, pairs, tonumber, getmetatable = type, pairs, tonumber, getmetatable
 local table_unpack = table.unpack
@@ -24,6 +25,7 @@ local msgpack_unpack, msgpack_pack_args = msgpack.unpack, msgpack.pack_args
 
 local Citizen = Citizen
 local isServer = host.server
+local runWithBoundaryEnd = fivelab.runWithBoundaryEnd
 
 msgpack.set_string('string_compat')
 msgpack.set_integer('unsigned')
@@ -88,9 +90,13 @@ if isServer then
     RegisterServerEvent = RegisterNetEvent
 end
 
+-- Like FiveM's, it calls out of the runtime from a boundary, so that stack
+-- traces of the runtimes the event reaches show where it was triggered.
 function TriggerEvent(eventName, ...)
     local payload = msgpack_pack_args(...)
-    return TriggerEventInternal(eventName, payload, payload:len())
+    return runWithBoundaryEnd(function()
+        return TriggerEventInternal(eventName, payload, payload:len())
+    end)
 end
 
 --[[ The event routine ]]

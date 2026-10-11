@@ -1,5 +1,6 @@
 --[[
-    FiveLab scheduler: Citizen threads, Wait, timeouts and Await.
+    FiveLab scheduler: Citizen threads, Wait, timeouts and Await, and the
+    boundaries that stack traces walk between.
 
     Threads are coroutines that the runtime resumes on its ticks, the way
     FiveM's scripting host runs its "bookmarks":
@@ -21,7 +22,11 @@
     host's clock, and delays are converted as FiveM's C code converts them,
     overflows included.
 
-    An error in a thread prints SCRIPT ERROR, like FiveM.
+    An error in a thread prints SCRIPT ERROR and the stack trace of the
+    runtimes that are running, like FiveM. The trace shows the frames of each
+    call into a runtime between its boundaries, which the runtime's host
+    keeps as FiveM's script host does: where the call started, the thread it
+    resumed, and where it last left the runtime, as TriggerEvent does.
 
     Loaded by the runtime with its host functions and a private table that
     the other FiveLab scripts share.
@@ -29,24 +34,32 @@
 
 local host, fivelab = ...
 
-local type, error, select, rawget = type, error, select, rawget
+local type, error, select, rawget, setmetatable = type, error, select, rawget, setmetatable
 local pcall = pcall
 local math_floor, math_ceil, math_mininteger = math.floor, math.ceil, math.mininteger
-local string_format = string.format
-local table_remove = table.remove
+local string_format, string_sub = string.format, string.sub
+local table_remove, table_pack, table_unpack = table.remove, table.pack, table.unpack
 local coroutine_create = coroutine.create
 local coroutine_resume = coroutine.resume
 local coroutine_yield = coroutine.yield
 local coroutine_status = coroutine.status
 local coroutine_close = coroutine.close
+local coroutine_running = coroutine.running
+local debug_getinfo = debug.getinfo
 local debug_getmetatable = debug.getmetatable
 
 local clock = host.clock
 local trace = host.trace
 local checked = host.checked
+local formatStackTrace = host.formatStackTrace
+local clearBoundaryStart = host.clearBoundaryStart
+local stackFrame = host.stackFrame
 
 local G = _G
 local Citizen = G.Citizen
+
+local submitBoundaryStart = Citizen.SubmitBoundaryStart
+local submitBoundaryEnd = Citizen.SubmitBoundaryEnd
 
 -- What Citizen.Await yields to ask for a function that resumes its thread.
 -- FiveM's scheduler takes it out of the Citizen table too.
@@ -72,11 +85,21 @@ local function errorMessage(err)
     return 'error object is not a string'
 end
 
--- Reports an error that ended a thread. FiveM follows SCRIPT ERROR with a
--- stack trace, but since April 2026 it walks no frames of a thread that
--- failed, so the trace of an error in the resource's own threads is empty.
+-- Reports an error that ended a thread as FiveM does: SCRIPT ERROR, then the
+-- stack trace of the runtimes that are running. Since April 2026 FiveM walks
+-- no frames of a thread that failed, so the trace shows only the calls of
+-- other runtimes that led to the thread. A stack trace that cannot be
+-- formatted reads "(nil stack trace)", as in FiveM.
 local function reportThreadError(co, err)
-    trace(string_format('^1SCRIPT ERROR: %s^7\n', errorMessage(err)))
+    local message = errorMessage(err)
+    local formatted, stack = pcall(formatStackTrace)
+    if not formatted then
+        stack = '(nil stack trace)'
+    end
+    trace(string_format('^1SCRIPT ERROR: %s^7\n', message))
+    if stack ~= '' then
+        trace(stack)
+    end
     -- A thread that is still running failed to resume, and has nothing to close.
     if coroutine_status(co) ~= 'dead' then
         return
@@ -146,21 +169,63 @@ local function flush()
     end
 end
 
+--[[ Boundaries ]]
+
+-- Threads and calls out of the runtime take the ids of their boundaries from
+-- one count, which starts at 1, as in FiveM.
+local boundaryIdx = 1
+
+local function nextBoundary()
+    boundaryIdx = boundaryIdx + 1
+    return boundaryIdx
+end
+
+-- The boundary each wrap function marks; see withBoundary.
+local boundaryOf = setmetatable({}, { __mode = 'k' })
+
+-- Calls fn(...) from a function named wrap, whose frame marks `boundary` for
+-- stack traces, as FiveM's wrap functions do, and returns the results packed.
+local function withBoundary(boundary, fn, ...)
+    local function wrap(...)
+        local v = table_pack(fn(...))
+        return table_unpack(v)
+    end
+    boundaryOf[wrap] = boundary
+    return table_pack(wrap(...))
+end
+
+-- Runs fn(...) as a call out of the runtime, as FiveM's runWithBoundaryEnd
+-- does: the stack traces of the runtimes it calls into show the frames of
+-- this one from where it called fn.
+local function runWithBoundaryEnd(fn, ...)
+    local boundary = nextBoundary()
+    submitBoundaryEnd(boundary)
+    local v = withBoundary(boundary, fn, ...)
+    submitBoundaryEnd(boundary)
+    return table_unpack(v)
+end
+
 --[[ Running threads ]]
 
 local lastId = 0
 
--- Calls the thread function through a local named fn, so stack traces name
--- its frame as FiveM's do.
+-- A thread runs its function from the wrap frame of its boundary, which
+-- calls it through an upvalue named fn, so that stack traces and errors name
+-- it as FiveM's do.
 local function newThread(fn)
     lastId = lastId + 1
+    local boundary = nextBoundary()
     return {
         id = lastId,
+        boundary = boundary,
         co = coroutine_create(function(...)
-            fn(...)
+            withBoundary(boundary, fn, ...)
         end),
     }
 end
+
+-- The threads being resumed, the innermost last.
+local runningThreads = {}
 
 local run
 
@@ -206,11 +271,19 @@ local function resumed(thread, ok, ...)
     return true
 end
 
+-- Resumes a thread as FiveM's Lua runtime does, marking it as where the
+-- current call into the runtime starts until it yields or ends.
 function run(thread)
-    if coroutine_status(thread.co) == 'dead' then
+    local co = thread.co
+    if coroutine_status(co) == 'dead' then
         return false
     end
-    return resumed(thread, coroutine_resume(thread.co))
+    runningThreads[#runningThreads + 1] = co
+    submitBoundaryStart(thread.boundary)
+    local yielded = resumed(thread, coroutine_resume(co))
+    clearBoundaryStart()
+    runningThreads[#runningThreads] = nil
+    return yielded
 end
 
 local function createThreadNow(fn)
@@ -277,6 +350,50 @@ G.CreateThread = Citizen.CreateThread
 G.SetTimeout = Citizen.SetTimeout
 G.ClearTimeout = Citizen.ClearTimeout
 
+--[[ Stack traces ]]
+
+local mainThread = coroutine_running()
+
+-- Whether stack traces leave out the frames of a chunk, as FiveM leaves out
+-- those of C functions and of its own scripts, which FiveLab's stand for.
+local function isHidden(source)
+    local prefix = string_sub(source, 1, 10)
+    return string_sub(source, 1, 1) == '=' or prefix == '@citizen:/' or prefix == '@fivelab:/'
+end
+
+-- Walks the stack of the innermost thread being resumed, as FiveM's stack
+-- trace routine does, and gives the host each frame from the wrap frame of
+-- boundary `from` (from the top for nil) to that of boundary `to` (to the
+-- bottom for nil). A thread that failed is not walked: FiveM walks the main
+-- thread of the runtime instead, where resource scripts seldom run.
+function fivelab.walkStack(from, to)
+    local thread = runningThreads[#runningThreads]
+    if thread == nil or coroutine_status(thread) == 'dead' then
+        thread = mainThread
+    end
+    local skip = from ~= nil
+    local level = 0
+    while true do
+        local info = debug_getinfo(thread, level, 'nlfS')
+        if info == nil then
+            break
+        end
+        local boundary = boundaryOf[info.func]
+        if boundary ~= nil then
+            if boundary == from then
+                skip = false
+            end
+            if boundary == to then
+                break
+            end
+        end
+        if not skip and not isHidden(info.source) then
+            stackFrame(info.name or '[global chunk]', string_sub(info.source, 2), info.currentline)
+        end
+        level = level + 1
+    end
+end
+
 --[[ Entry points for the runtime ]]
 
 -- Threads that were due when the current tick began, in the order they were
@@ -321,5 +438,6 @@ function fivelab.runFile(chunk)
 end
 
 fivelab.createThreadNow = createThreadNow
+fivelab.runWithBoundaryEnd = runWithBoundaryEnd
 fivelab.flush = flush
 fivelab.errorMessage = errorMessage

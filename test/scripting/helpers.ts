@@ -4,7 +4,12 @@ import {
   nativeWrapper,
   type NativeDefinition,
 } from '../../src/core/natives/index.ts'
-import { CLOCK_START, ScriptRuntime, type ScriptNatives } from '../../src/core/scripting/runtime.ts'
+import {
+  CLOCK_START,
+  ScriptRuntime,
+  type ScriptNatives,
+  type StackBoundaries,
+} from '../../src/core/scripting/runtime.ts'
 import { createRuntime } from '../lua/helpers.ts'
 
 export interface ResourceOptions {
@@ -15,6 +20,8 @@ export interface ResourceOptions {
   readonly client?: boolean
   /** Whether the natives of the catalog come first, for `natives` to replace. Defaults to false. */
   readonly catalog?: boolean
+  /** Replaces how the host formats stack traces: by default, it formats the runtime's own frames. */
+  readonly formatStackTrace?: () => string
 }
 
 /** A resource runtime with a game clock the test controls and its console captured. */
@@ -28,6 +35,12 @@ export interface TestResource {
   readonly diagnostics: readonly string[]
   /** The names Citizen.LoadNative was asked for. */
   readonly loads: readonly string[]
+  /**
+   * The boundaries the runtime submitted last, which the test keeps as if
+   * all calls into the runtime were one that no other runtime made: stack
+   * traces show the runtime's own frames between them.
+   */
+  readonly boundaries: StackBoundaries
   /** The time in milliseconds, which the runtime's clock counts from CLOCK_START. */
   readonly time: number
   /** Runs a script file of the resource. */
@@ -73,6 +86,10 @@ export async function createResource(options: ResourceOptions = {}): Promise<Tes
   const log: string[] = []
   const diagnostics: string[] = []
   const loads: string[] = []
+  const boundaries: { -readonly [K in keyof StackBoundaries]: StackBoundaries[K] } = {
+    start: null,
+    end: null,
+  }
   const script = ScriptRuntime.create(runtime, {
     resource: name,
     instanceId: 1,
@@ -84,6 +101,16 @@ export async function createResource(options: ResourceOptions = {}): Promise<Tes
     warn: (message) => warnings.push(message),
     log: (channel, text) => log.push(`[${channel}] ${text}`),
     diagnose: (message) => diagnostics.push(message),
+    submitBoundary: (which, id) => {
+      boundaries[which] = id
+    },
+    formatStackTrace:
+      options.formatStackTrace ??
+      (() =>
+        script
+          .walkStack(boundaries)
+          .map(({ name, file, line }) => `^3> ${name}^7 (^5${file}^7:${line})\n`)
+          .join('')),
   })
   const tickAt = (at: number) => {
     time = at
@@ -98,6 +125,7 @@ export async function createResource(options: ResourceOptions = {}): Promise<Tes
     log,
     diagnostics,
     loads,
+    boundaries,
     get time() {
       return time
     },

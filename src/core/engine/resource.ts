@@ -301,6 +301,9 @@ export class Resource {
       warn: (message) => manager.output.warn(name, message),
       log: (channel, text) => manager.log(channel, text),
       diagnose: (message) => manager.output.diagnose(name, message),
+      // Resources keep no boundaries yet, so their stack traces are empty.
+      submitBoundary: () => {},
+      formatStackTrace: () => '',
     }
   }
 

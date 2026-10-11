@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { createResource } from './helpers.ts'
+import { defineNative } from '../../src/core/natives/index.ts'
+import type { ScriptRuntime } from '../../src/core/scripting/runtime.ts'
+import { createResource, type TestResource } from './helpers.ts'
 
 describe('threads', () => {
   it('start CreateThread on the next tick', async () => {
@@ -276,6 +278,135 @@ end)`)
     expect(res.take()).toBe(
       "Error parsing script @test/broken.lua in resource test: @test/broken.lua:1: <name> expected near '='\n",
     )
+  })
+})
+
+describe('stack traces', () => {
+  /** A resource with natives that give its boundaries and the frames it walks between them. */
+  async function walking() {
+    let res: TestResource | undefined
+    const walk = (ctx: ScriptRuntime) =>
+      ctx
+        .walkStack(res!.boundaries)
+        .map(({ name, file, line }) => `${name} ${file}:${line}`)
+        .join(' < ')
+    const walks: string[] = []
+    res = await createResource({
+      natives: [
+        defineNative({ name: 'WALK_STACK', hash: 0x5000n, result: 'char*', params: [] }, walk),
+        defineNative(
+          {
+            name: 'TRIGGER_EVENT_INTERNAL',
+            hash: 0x5001n,
+            result: 'void',
+            params: ['char* eventName', 'char* eventPayload', 'int payloadLength'],
+          },
+          (ctx: ScriptRuntime) => {
+            walks.push(walk(ctx))
+          },
+        ),
+        defineNative(
+          { name: 'GET_BOUNDARIES', hash: 0x5002n, result: 'char*', params: [] },
+          () => `${res!.boundaries.start} ${res!.boundaries.end}`,
+        ),
+      ],
+    })
+    return { res, walks }
+  }
+
+  it('walk the frames of the thread that runs, natives included, up to where it started', async () => {
+    const { res } = await walking()
+    res.run(`local function inner()
+    print(WalkStack())
+end
+CreateThread(function()
+    inner()
+end)`)
+    res.tickAt(0)
+    expect(res.take()).toBe(
+      'WalkStack WalkStack.lua:2 < inner @test/client.lua:2 < fn @test/client.lua:5\n',
+    )
+  })
+
+  it('name frames as FiveM does, with [global chunk] for those without a name', async () => {
+    const { res } = await walking()
+    res.run(`local function tail()
+    return WalkStack()
+end
+print(WalkStack())
+print(tail())`)
+    expect(res.take()).toBe(
+      'WalkStack WalkStack.lua:2 < fn @test/client.lua:4\n' +
+        '[global chunk] WalkStack.lua:2 < fn @test/client.lua:5\n',
+    )
+  })
+
+  it("leave out FiveM's own frames, and name chunks by their source as FiveM does", async () => {
+    const { res } = await walking()
+    res.run(`local hidden = load('local trace = WalkStack() return trace', '=hidden')
+local system = load('local trace = WalkStack() return trace', '@citizen:/scripting/lua/system.lua')
+local plain = load('local trace = WalkStack() return trace')
+print(hidden())
+print(system())
+print(plain())`)
+    expect(res.take()).toBe(
+      'WalkStack WalkStack.lua:2 < fn @test/client.lua:4\n' +
+        'WalkStack WalkStack.lua:2 < fn @test/client.lua:5\n' +
+        'WalkStack WalkStack.lua:2 < plain ocal trace = WalkStack() return trace:1 < fn @test/client.lua:6\n',
+    )
+  })
+
+  it('start where the call last left the runtime, as TriggerEvent does', async () => {
+    const { res, walks } = await walking()
+    res.run(`local function notify()
+    TriggerEvent('event')
+end
+CreateThread(function()
+    notify()
+end)`)
+    res.tickAt(0)
+    expect(walks).toEqual(['notify @test/client.lua:2 < fn @test/client.lua:5'])
+  })
+
+  it('mark each thread as where the call starts while it runs', async () => {
+    const { res } = await walking()
+    res.run(`CreateThread(function() print(GetBoundaries()) end)
+CreateThread(function() print(GetBoundaries()) end)`)
+    res.tickAt(0)
+    const [first, second] = res.take().trimEnd().split('\n')
+    expect(first).toMatch(/^\d+ null$/)
+    expect(second).toMatch(/^\d+ null$/)
+    expect(first).not.toBe(second)
+    expect(res.boundaries).toEqual({ start: null, end: null })
+  })
+
+  it('take boundaries from scripts as integers, as FiveM does', async () => {
+    const { res } = await walking()
+    res.run(`Citizen.SubmitBoundaryStart(2.5)
+print(GetBoundaries())
+Citizen.SubmitBoundaryStart('7')
+print(GetBoundaries())
+Citizen.SubmitBoundaryEnd(' 0x10 ')`)
+    expect(res.take()).toBe('0 null\n7 null\n')
+    expect(res.boundaries).toEqual({ start: null, end: 16n })
+  })
+
+  it('follow SCRIPT ERROR, as the host formats them', async () => {
+    const res = await createResource({
+      formatStackTrace: () => '^3> caller^7 (^5@other/main.lua^7:3)\n',
+    })
+    res.run(`error('boom', 0)`)
+    expect(res.take()).toBe('^1SCRIPT ERROR: boom^7\n^3> caller^7 (^5@other/main.lua^7:3)\n')
+  })
+
+  it('read "(nil stack trace)" when the host cannot format them, as in FiveM', async () => {
+    const res = await createResource({
+      formatStackTrace: () => {
+        throw new Error('no stack trace')
+      },
+    })
+    res.run(`error('boom', 0)`)
+    expect(res.take()).toBe('^1SCRIPT ERROR: boom^7\n(nil stack trace)')
   })
 })
 
