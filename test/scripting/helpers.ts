@@ -50,7 +50,7 @@ export function scriptNatives(
     load: (name) => {
       loads.push(name)
       const native = registry.byName(name)
-      return native === undefined ? null : nativeWrapper(native, name)
+      return native === undefined ? null : nativeWrapper(native, name, { direct: client })
     },
     invoke: (runtime, ptr) => registry.invoke(runtime, ptr),
   }

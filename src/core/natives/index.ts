@@ -22,4 +22,4 @@ export type {
   ValueType,
   Vector3Like,
 } from './types.ts'
-export { nativeWrapper, type WrappedNative } from './wrappers.ts'
+export { nativeWrapper, type WrappedNative, type WrapperOptions } from './wrappers.ts'

@@ -62,4 +62,36 @@ describe('nativeWrapper', () => {
         'end\n',
     )
   })
+
+  it('calls through the handler from Citizen.GetNative on clients, as FiveM does', () => {
+    expect(
+      nativeWrapper(
+        {
+          hash: 0x3fef770d40960d5an,
+          result: 'Vector3',
+          params: [
+            { name: 'entity', type: 'Entity' },
+            { name: 'alive', type: 'BOOL' },
+          ],
+        },
+        'GetEntityCoords',
+        { direct: true },
+      ),
+    ).toBe(
+      'local fn = _gn(0x3FEF770D40960D5A)\n' +
+        'function Global.GetEntityCoords(entity, alive)\n' +
+        '\treturn fn(entity, alive, _rv)\n' +
+        'end\n',
+    )
+  })
+
+  it("keeps FiveM's documentation lines as empty comments", () => {
+    const native = { hash: 0xe5e9ebbbn, result: 'char*', params: [], docLines: 2 } as const
+    expect(nativeWrapper(native, 'GetCurrentResourceName')).toBe(
+      '--\n--\nfunction Global.GetCurrentResourceName()\n\treturn _in(0xE5E9EBBB, _s)\nend\n',
+    )
+    expect(nativeWrapper(native, 'GetCurrentResourceName', { direct: true })).toBe(
+      'local fn = _gn(0xE5E9EBBB)\n--\n--\nfunction Global.GetCurrentResourceName()\n\treturn fn(_s)\nend\n',
+    )
+  })
 })

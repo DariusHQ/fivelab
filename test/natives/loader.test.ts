@@ -131,3 +131,24 @@ print(Describe(nil, 'adder', print, nil, nil))`)
     expect(res.take()).toBe('[null,5,null,[192],0]\n')
   })
 })
+
+describe('native functions on clients', () => {
+  it('call the handler Citizen.GetNative returned when they loaded', async () => {
+    const res = await createResource({ natives, client: true })
+    res.run(`print(GetValues(3))
+print(Increment(41), GetHeading())`)
+    expect(res.take()).toBe('1\t6\t0.5\tvec3(1.000000, 2.000000, 3.000000)\n42\t90.0\n')
+  })
+
+  it('include GetHashKey, which hashes without running the native', async () => {
+    const hashKey = defineNative(
+      { name: 'GET_HASH_KEY', hash: 0xd24d37cc275948ccn, result: 'Hash', params: ['char* string'] },
+      () => 42,
+    )
+    const res = await createResource({ natives: [hashKey], client: true })
+    res.run(
+      `print(GetHashKey('adder'), GetHashKey(nil), GetHashKey(0), GetHashKey(5) == joaat('5'))`,
+    )
+    expect(res.take()).toBe('-1216765807\t0\t0\ttrue\n')
+  })
+})
