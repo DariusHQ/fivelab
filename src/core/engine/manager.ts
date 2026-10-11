@@ -73,6 +73,8 @@ export class ResourceManager {
    * order FiveM resumes their threads in.
    */
   readonly #ticking: Resource[] = []
+  /** The state of the rand() that ids of runtimes come from, which starts at 1 on Windows. */
+  #rand = 1
 
   constructor(options: ResourceManagerOptions) {
     this.side = options.side
@@ -263,6 +265,15 @@ export class ResourceManager {
     }
     const counted = warnings === 0 ? '' : ` (${warnings} warning${warnings === 1 ? '' : 's'})`
     this.log('resources', `Started resource ${resource.name}${counted}\n`)
+  }
+
+  /**
+   * @internal An id for a new runtime. FiveM draws them from C's rand(),
+   * which FiveLab emulates as Windows has it, from the first number it gives.
+   */
+  instanceId(): number {
+    this.#rand = (Math.imul(this.#rand, 214_013) + 2_531_011) >>> 0
+    return (this.#rand >>> 16) & 0x7fff
   }
 
   /** @internal Called by a resource that created its runtime. */

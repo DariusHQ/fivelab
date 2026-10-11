@@ -532,6 +532,22 @@ CreateThread(function() print(GetCurrentResourceName(), GetInvokingResource()) e
     }
   })
 
+  it("give runtimes ids as FiveM draws them, from Windows' rand()", async () => {
+    const proc = await createProcess()
+    // Resources without Lua scripts get no runtime, and draw no id.
+    proc.add('none', {}, []).start()
+    const a = proc.add('a', { 'main.lua': `print(GetInstanceId())` })
+    a.start()
+    proc.add('b', { 'main.lua': `print(GetInstanceId())` }).start()
+    a.stop()
+    a.start()
+    expect(proc.take().filter((line) => line.startsWith('[script:'))).toEqual([
+      '[script:a] 41',
+      '[script:b] 18467',
+      '[script:a] 6334',
+    ])
+  })
+
   it('hash names as FiveM does, with ASCII letters lowercased', async () => {
     const client = await createProcess({ side: 'client' })
     client

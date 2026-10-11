@@ -290,6 +290,7 @@ export class Resource {
     const { manager, name } = this
     return {
       resource: name,
+      instanceId: manager.instanceId(),
       natives: {
         client: manager.side === 'client',
         load: (native) => manager.nativeWrapper(native),

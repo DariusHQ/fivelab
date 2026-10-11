@@ -42,6 +42,10 @@ export function scriptingNatives(side: Side): NativeDefinition<NativeContext>[] 
       (ctx: NativeContext) => ctx.manager.invokingResource?.name ?? null,
     ),
     defineNative(
+      { name: 'GET_INSTANCE_ID', result: 'int', params: [] },
+      (ctx: NativeContext) => ctx.runtime.host.instanceId,
+    ),
+    defineNative(
       { name: 'IS_DUPLICITY_VERSION', result: 'BOOL', params: [] },
       (ctx: NativeContext) => ctx.manager.side === 'server',
     ),

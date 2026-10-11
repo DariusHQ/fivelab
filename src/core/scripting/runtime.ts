@@ -36,6 +36,8 @@ export const CLOCK_START = 86_400_000_000
 export interface ScriptHost {
   /** The resource the scripts belong to. */
   readonly resource: string
+  /** The id FiveM gives the runtime, which tells it from other runtimes of the resource. */
+  readonly instanceId: number
   readonly natives: ScriptNatives
   /**
    * The time on the clock that threads wait by, in whole microseconds from

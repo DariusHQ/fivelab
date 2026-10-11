@@ -75,6 +75,7 @@ export async function createResource(options: ResourceOptions = {}): Promise<Tes
   const loads: string[] = []
   const script = ScriptRuntime.create(runtime, {
     resource: name,
+    instanceId: 1,
     natives: scriptNatives(natives, client, loads),
     clock: () => CLOCK_START + time * 1000,
     trace: (text) => {
