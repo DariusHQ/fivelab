@@ -1,3 +1,11 @@
+export {
+  Constraints,
+  DEFAULT_GAME_BUILD,
+  FIVEM_BUILD,
+  parseGameBuild,
+  type Constraint,
+  type ConstraintResult,
+} from './constraints.ts'
 export { NativeContext } from './context.ts'
 export { ResourceManager, type ProcessOutput, type ResourceManagerOptions } from './manager.ts'
 export {

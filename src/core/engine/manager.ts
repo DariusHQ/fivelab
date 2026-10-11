@@ -7,6 +7,7 @@ import {
   type Side,
 } from '../natives/index.ts'
 import { CLOCK_START } from '../scripting/runtime.ts'
+import { Constraints, DEFAULT_GAME_BUILD, FIVEM_BUILD, parseGameBuild } from './constraints.ts'
 import type { NativeContext } from './context.ts'
 import { EventManager } from './events.ts'
 import { INT32_MIN } from './hook.ts'
@@ -38,6 +39,10 @@ export interface ResourceManagerOptions {
   readonly output: ProcessOutput
   /** Natives on top of FiveLab's, which replace those with their hash or name. */
   readonly natives?: readonly NativeDefinition<NativeContext>[]
+  /** On servers, whether OneSync is on, as it is by default in FiveM. */
+  readonly oneSync?: boolean
+  /** On servers, the game build that sv_enforceGameBuild enforces, 3258 by default as in FiveM. */
+  readonly gameBuild?: number
 }
 
 /**
@@ -50,6 +55,8 @@ export class ResourceManager {
   readonly output: ProcessOutput
   readonly natives = new NativeRegistry<NativeContext>()
   readonly events = new EventManager(this)
+  /** What dependencies such as /server:5181 test, which only servers enforce. */
+  readonly constraints = new Constraints()
   /**
    * The resources whose runtimes are running, the innermost call last, as
    * FiveM keeps its runtime stack.
@@ -75,6 +82,9 @@ export class ResourceManager {
       ...engineNatives(this.side),
       ...(options.natives ?? []),
     )
+    if (this.side === 'server') {
+      this.#registerConstraints(options.oneSync ?? true, options.gameBuild ?? DEFAULT_GAME_BUILD)
+    }
   }
 
   /** Milliseconds since the process started. */
@@ -176,6 +186,28 @@ export class ResourceManager {
   }
 
   /**
+   * Enforces the constraints of FiveM's server: its build, OneSync, the game
+   * build that it enforces, and the natives that it has.
+   */
+  #registerConstraints(oneSync: boolean, gameBuild: number): void {
+    this.constraints.enforcing = true
+    this.constraints.register('server', FIVEM_BUILD)
+    this.constraints.register('onesync', () => oneSync || 'OneSync needs to be enabled')
+    this.constraints.register('gameBuild', (value) => {
+      const build = parseGameBuild(value)
+      if (gameBuild === 0 || build === undefined) return false
+      if (gameBuild >= build) return true
+      return `sv_enforceGameBuild needs to be at least ${build} (current is ${gameBuild})`
+    })
+    this.constraints.register('native', (value) => {
+      if (value.length <= 2 || !value.startsWith('0x')) return false
+      const hash = strtoull(value.slice(2))
+      if (this.natives.byHash(hash) !== undefined) return true
+      return `native 0x${hash.toString(16).toUpperCase()} isn't supported`
+    })
+  }
+
+  /**
    * Whether FiveM's server lets a resource start, by what its fxmanifest.lua
    * says of the game and its version, which must be GTA V's, or common, and
    * adamant or later. Resources with a __resource.lua may start on GTA V's.
@@ -240,6 +272,21 @@ export class ResourceManager {
     this.#ticking.splice(this.#ticking.indexOf(resource), 1)
   }
 }
+
+/**
+ * C's strtoull in base 16: the hexadecimal number at the start of `text`,
+ * after an optional sign and 0x, or 0. Numbers that do not fit in 64 bits
+ * give the largest that does, and a minus sign negates the result.
+ */
+function strtoull(text: string): bigint {
+  const parts = /^[\t-\r ]*([+-]?)(?:0[xX](?=[\da-fA-F]))?([\da-fA-F]*)/.exec(text)!
+  if (parts[2] === '') return 0n
+  const value = BigInt(`0x${parts[2]}`)
+  if (value > MAX_UINT64) return MAX_UINT64
+  return parts[1] === '-' ? BigInt.asUintN(64, -value) : value
+}
+
+const MAX_UINT64 = 2n ** 64n - 1n
 
 /** Puts `prefix` before `text`, and ends its color before the line breaks at its end, as FiveM does. */
 function colored(prefix: string, text: string): string {

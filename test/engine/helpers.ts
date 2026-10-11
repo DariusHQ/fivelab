@@ -10,6 +10,8 @@ import { createRuntime } from '../lua/helpers.ts'
 export interface ProcessOptions {
   readonly side?: Side
   readonly natives?: readonly NativeDefinition<NativeContext>[]
+  readonly oneSync?: boolean
+  readonly gameBuild?: number
 }
 
 /** A process with a clock the test controls and its console captured line by line. */
@@ -59,6 +61,8 @@ export async function createProcess(options: ProcessOptions = {}): Promise<TestP
         diagnose: (resource, message) => diagnostics.push(`${resource}: ${message}`),
       },
       natives: options.natives ?? [],
+      ...(options.oneSync === undefined ? {} : { oneSync: options.oneSync }),
+      ...(options.gameBuild === undefined ? {} : { gameBuild: options.gameBuild }),
     }),
     time: 0,
     warnings,
