@@ -1,5 +1,6 @@
 import { ScriptRuntime, type ScriptHost } from '../scripting/runtime.ts'
 import { NativeContext } from './context.ts'
+import { FileTree, glob } from './glob.ts'
 import { Hook } from './hook.ts'
 import type { ResourceManager } from './manager.ts'
 import { readManifest, type MetadataEntry } from './manifest.ts'
@@ -42,6 +43,7 @@ export class Resource {
   /** Runs when the resource stops. */
   readonly onStop = new Hook()
   readonly #files: ReadonlyMap<string, string | Uint8Array>
+  #tree: FileTree | undefined
   #state: ResourceState = 'stopped'
   #runtime: ScriptRuntime | null = null
   #context: NativeContext | null = null
@@ -78,9 +80,19 @@ export class Resource {
     return this.metadata.filter(([name]) => name === key).map(([, value]) => value)
   }
 
+  /** The files that the manifest entries with `key` name, as FiveM globs them: those of each entry in turn. */
+  globEntries(key: string): string[] {
+    this.#tree ??= new FileTree(this.path, this.#files.keys())
+    const tree = this.#tree
+    return this.entries(key).flatMap((value) => glob(tree, value).files)
+  }
+
   /** The scripts the resource runs on its process's side: its shared scripts, then its client or server scripts. */
   get scripts(): string[] {
-    return [...this.entries('shared_script'), ...this.entries(`${this.manager.side}_script`)]
+    return [
+      ...this.globEntries('shared_script'),
+      ...this.globEntries(`${this.manager.side}_script`),
+    ]
   }
 
   file(path: string): string | Uint8Array | undefined {

@@ -61,7 +61,35 @@ server_scripts { 'first.lua', 'second.lua' }`,
     ])
   })
 
-  it('report scripts that do not load, and go on with the others', async () => {
+  it('run the scripts their entries glob, those of each entry in the order of their bytes', async () => {
+    const proc = await createProcess()
+    const script = (name: string) => `print('${name}')`
+    proc
+      .add(
+        'a',
+        {
+          'main.lua': script('main'),
+          'client/b.lua': script('client/b'),
+          'client/A.lua': script('client/A'),
+          'client/deep/c.lua': script('client/deep/c'),
+        },
+        [
+          ['server_script', 'main.lua'],
+          ['server_script', 'client/**/*.lua'],
+          ['server_script', 'main.lua'],
+        ],
+      )
+      .start()
+    expect(proc.take().filter((line) => line.startsWith('[script:'))).toEqual([
+      '[script:a] main',
+      '[script:a] client/A',
+      '[script:a] client/b',
+      '[script:a] client/deep/c',
+      '[script:a] main',
+    ])
+  })
+
+  it('skip scripts they do not have, report those that do not load, and go on with the others', async () => {
     const proc = await createProcess()
     proc
       .add('a', { 'broken.lua': `local = 1`, 'ok.lua': `print('ok')` }, [
@@ -72,7 +100,6 @@ server_scripts { 'first.lua', 'second.lua' }`,
       .start()
     expect(proc.take()).toEqual([
       '[citizen-scripting-core] Creating script environments for a',
-      '[citizen-scripting-core] Failed to load script missing.lua.',
       "[script:a] Error parsing script @a/broken.lua in resource a: @a/broken.lua:1: <name> expected near '='",
       '[citizen-scripting-core] Failed to load script broken.lua.',
       '[script:a] ok',
