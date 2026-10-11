@@ -7,3 +7,5 @@
 *.ico binary
 *.webp binary
 *.woff2 binary
+
+src/core/natives/catalog/*.json linguist-generated=true

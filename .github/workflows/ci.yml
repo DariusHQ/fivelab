@@ -26,6 +26,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run format:check
+      - name: Check that the native catalog matches the typings
+        run: npm run build:natives -- --check
 
   test:
     name: Test (${{ matrix.os }}, Node ${{ matrix.node }})

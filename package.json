@@ -27,12 +27,15 @@
   },
   "scripts": {
     "build:wasm": "node scripts/build-wasm.ts",
+    "build:natives": "node scripts/generate-natives.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "@citizenfx/client": "2.0.37175-1",
+    "@citizenfx/server": "2.0.37175-1",
     "@types/node": "22.18.13",
     "prettier": "3.9.9",
     "typescript": "6.0.3",
