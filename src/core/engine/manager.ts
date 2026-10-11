@@ -1,4 +1,4 @@
-import type { LuaRuntime } from '../lua/index.ts'
+import { LuaError, type LuaRuntime } from '../lua/index.ts'
 import {
   catalogNatives,
   NativeRegistry,
@@ -6,13 +6,14 @@ import {
   type NativeDefinition,
   type Side,
 } from '../natives/index.ts'
-import { CLOCK_START } from '../scripting/runtime.ts'
+import { CLOCK_START, type ScriptRuntime, type StackBoundaries } from '../scripting/runtime.ts'
 import { Constraints, DEFAULT_GAME_BUILD, FIVEM_BUILD, parseGameBuild } from './constraints.ts'
 import type { NativeContext } from './context.ts'
 import { Dependencies } from './dependencies.ts'
 import { EventManager } from './events.ts'
 import { INT32_MIN } from './hook.ts'
 import { isFxVersionAtLeast } from './manifest.ts'
+import { arrayLength } from './msgpack.ts'
 import { engineNatives } from './natives/index.ts'
 import { Resource, type ResourceDefinition } from './resource.ts'
 
@@ -47,6 +48,18 @@ export interface ResourceManagerOptions {
 }
 
 /**
+ * A call into a resource's runtime, as FiveM's script host keeps them on its
+ * runtime stack, with the boundaries that stack traces walk between.
+ */
+interface RuntimeCall {
+  readonly resource: Resource
+  /** The runtime the call entered, or null if the resource had none. */
+  readonly runtime: ScriptRuntime | null
+  start: bigint | null
+  end: bigint | null
+}
+
+/**
  * The resources of one FiveM process, the server or a client, and the
  * natives their scripts call.
  */
@@ -59,11 +72,13 @@ export class ResourceManager {
   /** What dependencies such as /server:5181 test, which only servers enforce. */
   readonly constraints = new Constraints()
   readonly #dependencies = new Dependencies(this)
+  /** The calls into runtimes that are running, the innermost last. */
+  readonly #calls: RuntimeCall[] = []
   /**
-   * The resources whose runtimes are running, the innermost call last, as
-   * FiveM keeps its runtime stack.
+   * Whether a stack trace was formatted since the outermost call into a
+   * runtime began, as FiveM's g_suppressErrors says; see formatStackTrace.
    */
-  readonly runtimeStack: Resource[] = []
+  #suppressErrors = false
   readonly #time: () => number
   readonly #resources = new Map<string, Resource>()
   /** The resources that provide each name, as their provide entries say, in the order they were added. */
@@ -103,12 +118,12 @@ export class ResourceManager {
 
   /** The resource whose script code is running, which GetCurrentResourceName names. */
   get currentResource(): Resource | undefined {
-    return this.runtimeStack.at(-1)
+    return this.#calls.at(-1)?.resource
   }
 
   /** The resource whose script code called into the current one, which GetInvokingResource names. */
   get invokingResource(): Resource | undefined {
-    return this.runtimeStack.at(-2)
+    return this.#calls.at(-2)?.resource
   }
 
   /** Adds a stopped resource. */
@@ -180,6 +195,44 @@ export class ResourceManager {
   /** Writes an error to the console on `channel`, as FiveM's console::PrintError does. */
   logError(channel: string, text: string): void {
     this.log(channel, colored('^1Error: ', text))
+  }
+
+  /**
+   * The stack trace of the runtimes that are running, as FiveM's
+   * FORMAT_STACK_TRACE formats it: the frames each call into a runtime walks
+   * between its boundaries, the innermost call first. Scripts may give
+   * frames of their own to put first, which FiveLab does not read; once a
+   * stack trace was formatted, such calls get null until the outermost call
+   * into a runtime returns, as in FiveM.
+   */
+  formatStackTrace(frames: Uint8Array | null): string | null {
+    if (frames !== null && this.#suppressErrors) return null
+    this.#suppressErrors = true
+    const current = this.#calls.at(-1)
+    if (frames !== null && arrayLength(frames) > 0 && current !== undefined) {
+      this.output.diagnose(
+        current.resource.name,
+        'FormatStackTrace was given stack frames to put first, which FiveLab does not read yet: it leaves them out of the stack trace.',
+      )
+    }
+    let trace = ''
+    for (let i = this.#calls.length - 1; i >= 0; i--) {
+      const { runtime, start, end } = this.#calls[i]!
+      if (runtime === null) continue
+      try {
+        for (const { name, file, line } of runtime.walkStack({ start, end })) {
+          trace += `^3> ${name}^7 (^5${file}^7:${line})\n`
+        }
+      } catch (error) {
+        if (!(error instanceof LuaError)) throw error
+        // FiveM reports it on the console of the current runtime.
+        this.log(
+          `script:${current!.resource.name}`,
+          runtime.describeRoutineError('stack trace', error),
+        )
+      }
+    }
+    return trace
   }
 
   /** The Lua code that defines the native called `name`, for Citizen.LoadNative. */
@@ -274,6 +327,23 @@ export class ResourceManager {
   instanceId(): number {
     this.#rand = (Math.imul(this.#rand, 214_013) + 2_531_011) >>> 0
     return (this.#rand >>> 16) & 0x7fff
+  }
+
+  /** @internal Called by a resource when a call enters its runtime, or the resource if it has none. */
+  pushCall(resource: Resource, runtime: ScriptRuntime | null): void {
+    this.#calls.push({ resource, runtime, start: null, end: null })
+  }
+
+  /** @internal Called by a resource when the innermost call into its runtime returns. */
+  popCall(): void {
+    this.#calls.pop()
+    if (this.#calls.length === 0) this.#suppressErrors = false
+  }
+
+  /** @internal Sets a boundary of the innermost call; see ScriptHost.submitBoundary. */
+  submitBoundary(which: keyof StackBoundaries, id: bigint | null): void {
+    const call = this.#calls.at(-1)
+    if (call !== undefined) call[which] = id
   }
 
   /** @internal Called by a resource that created its runtime. */

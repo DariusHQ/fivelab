@@ -99,6 +99,17 @@ export function pack(value: PackedValue): Uint8Array {
   return writer.bytes
 }
 
+/** The number of items of the array that msgpack `bytes` start with, or 0 if they start with none. */
+export function arrayLength(bytes: Uint8Array): number {
+  const first = bytes[0] ?? 0
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  // fixarray, array 16 and array 32.
+  if (first >> 4 === 0x9) return first & 0xf
+  if (first === 0xdc && bytes.length >= 3) return view.getUint16(1)
+  if (first === 0xdd && bytes.length >= 5) return view.getUint32(1)
+  return 0
+}
+
 function write(writer: Writer, value: PackedValue): void {
   if (value === null) {
     writer.byte(0xc0)

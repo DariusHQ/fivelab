@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { pack, type PackedValue } from '../../src/core/engine/msgpack.ts'
+import { arrayLength, pack, type PackedValue } from '../../src/core/engine/msgpack.ts'
 import { createProcess } from './helpers.ts'
 
 /** The first `count` bytes of the packed value, in hex. */
@@ -9,6 +9,22 @@ function head(value: PackedValue, count = Infinity): string {
     byte.toString(16).padStart(2, '0'),
   ).join(' ')
 }
+
+describe('arrayLength', () => {
+  it('reads the length of the array msgpack bytes start with', () => {
+    expect(arrayLength(pack([]))).toBe(0)
+    expect(arrayLength(pack([1, [2, 3]]))).toBe(2)
+    expect(arrayLength(pack(new Array<null>(16).fill(null)))).toBe(16)
+    expect(arrayLength(new Uint8Array([0xdd, 0, 1, 0, 0]))).toBe(65536)
+  })
+
+  it('reads 0 for bytes that start with no array', () => {
+    expect(arrayLength(pack({ a: [1] }))).toBe(0)
+    expect(arrayLength(pack(null))).toBe(0)
+    expect(arrayLength(new Uint8Array())).toBe(0)
+    expect(arrayLength(new Uint8Array([0xdc, 0]))).toBe(0)
+  })
+})
 
 describe('pack', () => {
   it('packs nil and booleans', () => {

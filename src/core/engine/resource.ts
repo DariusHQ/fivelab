@@ -195,13 +195,12 @@ export class Resource {
    */
   enter<T>(fn: () => T): T {
     const runtime = this.#runtime
-    const stack = this.manager.runtimeStack
-    stack.push(this)
+    this.manager.pushCall(this, runtime)
     if (runtime !== null) this.#depth.set(runtime, (this.#depth.get(runtime) ?? 0) + 1)
     try {
       return fn()
     } finally {
-      stack.pop()
+      this.manager.popCall()
       if (runtime !== null) {
         const depth = this.#depth.get(runtime)! - 1
         if (depth > 0) {
@@ -301,9 +300,8 @@ export class Resource {
       warn: (message) => manager.output.warn(name, message),
       log: (channel, text) => manager.log(channel, text),
       diagnose: (message) => manager.output.diagnose(name, message),
-      // Resources keep no boundaries yet, so their stack traces are empty.
-      submitBoundary: () => {},
-      formatStackTrace: () => '',
+      submitBoundary: (which, id) => manager.submitBoundary(which, id),
+      formatStackTrace: () => manager.formatStackTrace(null) ?? '',
     }
   }
 
