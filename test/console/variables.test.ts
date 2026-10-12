@@ -12,6 +12,8 @@ function createVariables(server = true) {
   const output = {
     print: (channel: string, text: string) => printed.push(`[${channel}] ${text}`),
     printWarning: (channel: string, text: string) => printed.push(`[${channel}] warning ${text}`),
+    printDeveloper: (channel: string, text: string) =>
+      printed.push(`[${channel}] developer ${text}`),
   }
   const commands = new Commands(security, output)
   const buffer: string[] = []

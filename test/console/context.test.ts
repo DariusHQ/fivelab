@@ -26,6 +26,8 @@ function createContext(fallbackOf?: TestContext): TestContext {
   const output = {
     print: (channel: string, text: string) => printed.push(`[${channel}] ${text}`),
     printWarning: (channel: string, text: string) => printed.push(`[${channel}] warning ${text}`),
+    printDeveloper: (channel: string, text: string) =>
+      printed.push(`[${channel}] developer ${text}`),
   }
   const clock = { now: 1000 }
   const context = new ConsoleContext({

@@ -1,4 +1,5 @@
 import { compareUtf8 } from '../libc.ts'
+import type { ConsoleOutput } from './commands.ts'
 
 /** Whether an access control entry allows its principal access to its object, or denies it. */
 export type Access = 'allow' | 'deny'
@@ -27,6 +28,11 @@ export const EVERYONE = 'builtin.everyone'
  * so only ASCII letters.
  */
 export class Security {
+  /**
+   * Where checks print what they find, as FiveM's do while its se_debug is
+   * on, or undefined while it is off.
+   */
+  debug: ConsoleOutput | undefined
   /** The entries, ordered by object as C++ orders strings, then as they were added. */
   readonly #entries: AccessControlEntry[] = []
   /** The inheritances, ordered by child as C++ orders strings, then as they were added. */
@@ -97,18 +103,30 @@ export class Security {
    * one of its parents, such as command for command.say, and none denies it.
    */
   checkPrincipal(principal: string, object: string): boolean {
-    const principals = this.#principalsOf(lower(principal))
+    const [who, what] = [lower(principal), lower(object)]
+    const principals = this.#principalsOf(who)
     // The object, then each of its parents: what comes before its dots.
-    const objects = [lower(object)]
-    for (let last = objects[0]!; last.includes('.'); objects.push(last)) {
+    const objects = [what]
+    for (let last = what; last.includes('.'); objects.push(last)) {
       last = last.slice(0, last.lastIndexOf('.'))
     }
+    const { debug } = this
+    const test = `TEST ACL [${who} -> ${what}]`
     let allowed = false
-    for (const { principal: who, object: what, access } of this.#entries) {
-      if (!principals.has(who) || !objects.includes(what)) continue
-      if (access === 'deny') return false
-      allowed = true
+    for (const parent of objects) {
+      for (const entry of this.#entries) {
+        if (entry.object !== parent || !principals.has(entry.principal)) continue
+        const ace = `${test} ACE [${entry.principal} ${entry.object}]`
+        if (entry.access === 'deny') {
+          debug?.printDeveloper('security', `${ace} -> DENY-ALWAYS\n`)
+          debug?.print('security', `${test} -> DENY-ALWAYS\n`)
+          return false
+        }
+        debug?.printDeveloper('security', `${ace} -> ALLOW\n`)
+        allowed = true
+      }
     }
+    debug?.print('security', `${test} -> ${allowed ? 'ALLOW' : 'DENY'}\n`)
     return allowed
   }
 

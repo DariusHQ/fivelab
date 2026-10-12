@@ -31,6 +31,8 @@ export interface ConsoleOutput {
   print(channel: string, text: string): void
   /** Prints a warning on a channel, as FiveM's console::PrintWarning does. */
   printWarning(channel: string, text: string): void
+  /** Prints text on a channel in developer mode only, as FiveM's console::DPrintf does. */
+  printDeveloper(channel: string, text: string): void
 }
 
 interface Entry extends CommandInfo {

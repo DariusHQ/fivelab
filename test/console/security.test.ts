@@ -126,4 +126,33 @@ describe('Security', () => {
       { principal: 'a', object: 'y', access: 'allow' },
     ])
   })
+
+  it('prints what checks find while debugging, from the object to its parents', () => {
+    const security = new Security()
+    const printed: string[] = []
+    security.addEntry('group.Admin', 'command', 'allow')
+    security.addEntry('group.admin', 'command.kick', 'allow')
+    security.addEntry('group.mod', 'command.kick', 'deny')
+    security.addEntry('player', 'command.ban.hard', 'allow')
+    security.addEntry(EVERYONE, 'command.ban', 'deny')
+    security.addInheritance('player', 'group.admin')
+    expect(security.checkPrincipal('player', 'command.kick')).toBe(true)
+    security.debug = {
+      print: (channel, text) => printed.push(`[${channel}] ${text}`),
+      printWarning: (channel, text) => printed.push(`[${channel}] warning ${text}`),
+      printDeveloper: (channel, text) => printed.push(`[${channel}] developer ${text}`),
+    }
+    expect(security.checkPrincipal('Player', 'Command.Kick')).toBe(true)
+    expect(security.checkPrincipal('player', 'command.ban.hard')).toBe(false)
+    expect(security.checkPrincipal('player', 'webadmin')).toBe(false)
+    expect(printed).toEqual([
+      '[security] developer TEST ACL [player -> command.kick] ACE [group.admin command.kick] -> ALLOW\n',
+      '[security] developer TEST ACL [player -> command.kick] ACE [group.admin command] -> ALLOW\n',
+      '[security] TEST ACL [player -> command.kick] -> ALLOW\n',
+      '[security] developer TEST ACL [player -> command.ban.hard] ACE [player command.ban.hard] -> ALLOW\n',
+      '[security] developer TEST ACL [player -> command.ban.hard] ACE [builtin.everyone command.ban] -> DENY-ALWAYS\n',
+      '[security] TEST ACL [player -> command.ban.hard] -> DENY-ALWAYS\n',
+      '[security] TEST ACL [player -> webadmin] -> DENY\n',
+    ])
+  })
 })
