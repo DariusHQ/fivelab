@@ -93,6 +93,32 @@ describe('Printer', () => {
     expect(written).toEqual(['[debug] b', '[debug] c'])
   })
 
+  it('tells listeners what prints after the console, unless filters drop it', () => {
+    const { printer, written, run } = createPrinter()
+    const heard: string[] = []
+    printer.listen((channel, text) => heard.push(`first [${channel}] ${text}`))
+    printer.listen((channel, text) => {
+      heard.push(`second [${channel}] ${text}`)
+      written.push('second is after the console')
+    })
+    run('con_addChannelFilter hidden noprint')
+    run('con_addChannelFilter gone drop')
+    printer.print('shown', 'a\0')
+    printer.print('hidden', 'b')
+    printer.print('gone', 'c')
+    expect(heard).toEqual([
+      'first [shown] a^5<\\0>^7',
+      'second [shown] a^5<\\0>^7',
+      'first [hidden] b',
+      'second [hidden] b',
+    ])
+    expect(written).toEqual([
+      '[shown] a^5<\\0>^7',
+      'second is after the console',
+      'second is after the console',
+    ])
+  })
+
   it('adds, replaces and removes filters by pattern and action, which it lists in that order', () => {
     const { printer, written, run } = createPrinter()
     const smile = String.fromCodePoint(0x1f600)

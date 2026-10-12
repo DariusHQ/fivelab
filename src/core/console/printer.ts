@@ -31,7 +31,8 @@ interface Filter extends ChannelFilter {
 /**
  * What FiveM's console prints, as console::Printf and its siblings print
  * it: text on a channel, which goes to the console of the process unless
- * the filters of the channel keep it from there.
+ * the filters of the channel keep it from there, then to the listeners of
+ * what prints unless they drop it.
  */
 export class Printer implements ConsoleOutput {
   /** The developer mode, as FiveM's developer variable sets it: on above 0. */
@@ -39,6 +40,7 @@ export class Printer implements ConsoleOutput {
   readonly #write: (channel: string, text: string) => void
   /** The filters, ordered by pattern as C++ orders strings, then by action. */
   readonly #filters: Filter[] = []
+  readonly #listeners: ((channel: string, text: string) => void)[] = []
 
   /** A printer that writes what reaches the console of the process with `write`. */
   constructor(write: (channel: string, text: string) => void) {
@@ -56,9 +58,20 @@ export class Printer implements ConsoleOutput {
     }
     // FiveM drops what filters print in developer mode only unless the mode is not 0.
     if (actions & ChannelAction.devOnly && this.developer === 0) actions = ChannelAction.drop
-    if (actions & (ChannelAction.drop | ChannelAction.noPrint)) return
+    if (actions & ChannelAction.drop) return
     // FiveM shows NULs, which would end what it prints, as <\0>.
-    this.#write(channel, text.replaceAll('\0', '^5<\\0>^7'))
+    const shown = text.replaceAll('\0', '^5<\\0>^7')
+    if ((actions & ChannelAction.noPrint) === 0) this.#write(channel, shown)
+    for (const listener of this.#listeners) listener(channel, shown)
+  }
+
+  /**
+   * Calls `listener` with what prints after the console and the listeners
+   * before it, as FiveM calls its print listeners: with all that filters do
+   * not drop, which includes what they keep from the console.
+   */
+  listen(listener: (channel: string, text: string) => void): void {
+    this.#listeners.push(listener)
   }
 
   printWarning(channel: string, text: string): void {
