@@ -1,3 +1,5 @@
+import { compareUtf8 } from '../libc.ts'
+
 /**
  * Normalizes a path as FiveM does before it globs it: backslashes become
  * slashes, repeated slashes and "." parts go, ".." parts take out the part
@@ -161,16 +163,4 @@ function namePattern(name: string): RegExp | undefined {
 function directoryOf(path: string): string {
   const slash = path.lastIndexOf('/')
   return slash === -1 ? '.' : path.slice(0, slash)
-}
-
-/** Orders strings as C++ orders their UTF-8 bytes, which is by code point. */
-export function compareUtf8(a: string, b: string): number {
-  const length = Math.min(a.length, b.length)
-  for (let i = 0; i < length; i++) {
-    const x = a.codePointAt(i)!
-    const y = b.codePointAt(i)!
-    if (x !== y) return x - y
-    if (x > 0xffff) i++
-  }
-  return a.length - b.length
 }

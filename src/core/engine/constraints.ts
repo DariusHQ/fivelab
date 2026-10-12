@@ -1,4 +1,4 @@
-import { atoi } from './libc.ts'
+import { atoi } from '../libc.ts'
 
 /** The build of FiveM that FiveLab follows, whose typings its natives come from. */
 export const FIVEM_BUILD = 37175

@@ -22,3 +22,15 @@ export function strtoull(text: string): bigint {
 }
 
 const MAX_UINT64 = 2n ** 64n - 1n
+
+/** Orders strings as C++ orders their UTF-8 bytes, which is by code point. */
+export function compareUtf8(a: string, b: string): number {
+  const length = Math.min(a.length, b.length)
+  for (let i = 0; i < length; i++) {
+    const x = a.codePointAt(i)!
+    const y = b.codePointAt(i)!
+    if (x !== y) return x - y
+    if (x > 0xffff) i++
+  }
+  return a.length - b.length
+}

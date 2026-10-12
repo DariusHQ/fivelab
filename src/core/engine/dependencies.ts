@@ -1,4 +1,4 @@
-import { compareUtf8 } from './glob.ts'
+import { compareUtf8 } from '../libc.ts'
 import { INT32_MIN } from './hook.ts'
 import type { ResourceManager } from './manager.ts'
 import type { Resource } from './resource.ts'
