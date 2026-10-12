@@ -13,6 +13,7 @@ import type { NativeCaller } from '../natives/invoker.ts'
 import eventsSource from './lua/events.lua?raw'
 import exportsSource from './lua/exports.lua?raw'
 import nativesSource from './lua/natives.lua?raw'
+import nuiSource from './lua/nui.lua?raw'
 import refsSource from './lua/refs.lua?raw'
 import schedulerSource from './lua/scheduler.lua?raw'
 import deferredSource from './lua/vendor/deferred.lua?raw'
@@ -138,7 +139,7 @@ function callable(value: LuaValue): LuaRef | LuaHostFunction {
  * The Lua runtime of one resource on one side, set up like FiveM's: CfxLua
  * with FiveM's libraries and require, the Citizen table with natives that load
  * on first use, the promise library, the Citizen scheduler with print,
- * events, function references and exports.
+ * events, function references, exports, and NUI helpers on clients.
  */
 export class ScriptRuntime implements NativeCaller {
   readonly state: LuaState
@@ -426,6 +427,7 @@ export class ScriptRuntime implements NativeCaller {
     state.run(eventsSource, '@fivelab:/events.lua', hostTable, fivelab)
     state.run(refsSource, '@fivelab:/refs.lua', hostTable, fivelab)
     state.run(exportsSource, '@fivelab:/exports.lua', hostTable)
+    if (host.natives.client) state.run(nuiSource, '@fivelab:/nui.lua')
     const [collect, resume, runFile, flush, walkStack, callRef, duplicateRef, deleteRef] =
       state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
     release(hostTable, fivelab)

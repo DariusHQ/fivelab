@@ -112,10 +112,13 @@ end
 print(table.concat(defined, ' '))
 print(table.concat(returned, ' '))`)
       const [defined, returned] = res.take().split('\n')
-      // The script runtime defines Wait instead of the native WAIT, as FiveM's
-      // does, and on servers loads the natives its helpers call as it loads.
+      // The script runtime defines Wait instead of the native WAIT, and
+      // RegisterNuiCallback around the native, as FiveM's does, and loads the
+      // natives that its helpers take as it loads.
       const predefined =
-        side === 'client' ? ['Wait'] : ['GetPlayerEndpoint', 'RegisterResourceAsEventHandler']
+        side === 'client'
+          ? ['RegisterNuiCallback', 'SendNuiMessage', 'Wait']
+          : ['GetPlayerEndpoint', 'RegisterResourceAsEventHandler']
       expect(defined).toBe(predefined.join(' '))
       expect(returned!.split(' ')).toEqual(
         names
