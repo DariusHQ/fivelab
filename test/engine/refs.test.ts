@@ -352,6 +352,62 @@ end)`,
     expect(proc.take()).toEqual(['[script:a] created'])
   })
 
+  it('await functions that wait, in the thread that calls them', async () => {
+    const proc = await createProcess()
+    start(
+      proc,
+      'b',
+      `AddEventHandler('call', function(slow)
+    print('returned', slow(5))
+end)`,
+    )
+    start(
+      proc,
+      'a',
+      `CreateThread(function()
+    TriggerEvent('call', function(n)
+        Wait(100)
+        return n + 1, 'later'
+    end)
+    print('triggered')
+end)`,
+    )
+    proc.tickAt(0)
+    expect(proc.take()).toEqual(['[script:a] triggered'])
+    proc.tickAt(50)
+    expect(proc.take()).toEqual([])
+    proc.tickAt(100)
+    expect(proc.take()).toEqual(['[script:b] returned\t6\tlater'])
+  })
+
+  it('raise errors of functions that fail after they waited in the thread that awaits them', async () => {
+    const proc = await createProcess()
+    start(
+      proc,
+      'b',
+      `AddEventHandler('call', function(slow)
+    local ok, err = pcall(slow)
+    print(ok, err)
+end)`,
+    )
+    start(
+      proc,
+      'a',
+      `TriggerEvent('call', function()
+    Wait(0)
+    error('late')
+end)`,
+    )
+    proc.tickAt(0)
+    const [first, ...rest] = proc.take()
+    // Citizen.Await raises the error from where the proxy awaits it.
+    expect(first).toMatch(
+      /^\[script:b\] false\tfivelab:\/refs\.lua:\d+: \^1SCRIPT ERROR: @a\/main\.lua:3: late\^7$/,
+    )
+    // The stack trace ends the error with a line break, after which print ends the line.
+    expect(rest).toEqual(['[script:b] ^3> ref^7 (^5@a/main.lua^7:3)', '[script:b] '])
+  })
+
   it('report errors of functions that fail after they waited when no thread awaits them', async () => {
     const proc = await createProcess()
     expect(

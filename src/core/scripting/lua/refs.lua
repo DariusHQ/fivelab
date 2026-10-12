@@ -24,6 +24,7 @@ local host, fivelab = ...
 
 local type, error, rawget, setmetatable = type, error, rawget, setmetatable
 local debug_getinfo = debug.getinfo
+local coroutine_running = coroutine.running
 local msgpack = msgpack
 
 -- Argument errors name a function by the variable it is called through, so
@@ -96,6 +97,20 @@ local function callProxy(self, ...)
         return Citizen_InvokeFunctionReference(ref, args)
     end)
     local results = msgpack_unpack(packed)
+    -- A function that waited gives a function to call back with its results
+    -- once it returns, which the current thread awaits.
+    if results and type(results[1]) == 'table' and rawget(results[1], '__cfx_async_retval')
+        and coroutine_running() then
+        local p = promise.new()
+        results[1].__cfx_async_retval(function(returned, err)
+            if returned then
+                p:resolve(returned)
+            elseif err then
+                p:reject(err)
+            end
+        end)
+        return table_unpack(Citizen.Await(p))
+    end
     -- The function failed, or the reference names none.
     if not results then
         error()
