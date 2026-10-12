@@ -1,4 +1,4 @@
-import { compareUtf8 } from '../libc.ts'
+import { compareUtf8, lowerAscii } from '../libc.ts'
 import type { ConsoleOutput } from './commands.ts'
 
 /** Whether an access control entry allows its principal access to its object, or denies it. */
@@ -56,31 +56,31 @@ export class Security {
   }
 
   addEntry(principal: string, object: string, access: Access): void {
-    const entry = { principal: lower(principal), object: lower(object), access }
+    const entry = { principal: lowerAscii(principal), object: lowerAscii(object), access }
     insertSorted(this.#entries, entry, (other) => compareUtf8(entry.object, other.object))
   }
 
   /** Removes the entries for an object that give a principal an access. */
   removeEntry(principal: string, object: string, access: Access): void {
-    const [p, o] = [lower(principal), lower(object)]
+    const [p, o] = [lowerAscii(principal), lowerAscii(object)]
     removeWhere(this.#entries, (e) => e.principal === p && e.object === o && e.access === access)
   }
 
   addInheritance(child: string, parent: string): void {
-    const inheritance = { child: lower(child), parent: lower(parent) }
+    const inheritance = { child: lowerAscii(child), parent: lowerAscii(parent) }
     insertSorted(this.#inheritances, inheritance, (other) =>
       compareUtf8(inheritance.child, other.child),
     )
   }
 
   removeInheritance(child: string, parent: string): void {
-    const [c, p] = [lower(child), lower(parent)]
+    const [c, p] = [lowerAscii(child), lowerAscii(parent)]
     removeWhere(this.#inheritances, (i) => i.child === c && i.parent === p)
   }
 
   /** Runs `fn` as `principal`, as FiveM's se::ScopedPrincipal does. */
   runAs<T>(principal: string, fn: () => T): T {
-    this.#principals.unshift(lower(principal))
+    this.#principals.unshift(lowerAscii(principal))
     try {
       return fn()
     } finally {
@@ -103,7 +103,7 @@ export class Security {
    * one of its parents, such as command for command.say, and none denies it.
    */
   checkPrincipal(principal: string, object: string): boolean {
-    const [who, what] = [lower(principal), lower(object)]
+    const [who, what] = [lowerAscii(principal), lowerAscii(object)]
     const principals = this.#principalsOf(who)
     // The object, then each of its parents: what comes before its dots.
     const objects = [what]
@@ -149,11 +149,6 @@ export class Security {
     }
     return found
   }
-}
-
-/** A string lowercased as C's tolower does, which lowercases only ASCII letters. */
-function lower(text: string): string {
-  return text.replace(/[A-Z]+/g, (letters) => letters.toLowerCase())
 }
 
 /** Inserts `item` after the items it does not order before. */

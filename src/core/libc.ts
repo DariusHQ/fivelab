@@ -43,7 +43,12 @@ const MAX_UINT64 = 2n ** 64n - 1n
  * orders keys as _stricmp orders their strings.
  */
 export function stricmpKey(text: string): string {
-  return text.split('\0', 1)[0]!.replace(/[A-Z]+/g, (letters) => letters.toLowerCase())
+  return lowerAscii(text.split('\0', 1)[0]!)
+}
+
+/** A string lowercased as C's tolower lowercases characters, which is only ASCII letters. */
+export function lowerAscii(text: string): string {
+  return text.replace(/[A-Z]+/g, (letters) => letters.toLowerCase())
 }
 
 /** Orders strings as C++ orders their UTF-8 bytes, which is by code point. */
