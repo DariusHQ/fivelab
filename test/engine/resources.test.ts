@@ -253,7 +253,8 @@ files { 'html/*', 'stream/**' }`,
     )
     const proc = await createProcess({ natives: [stop] })
     const res = proc.add('a', {
-      'first.lua': `StopThisResource()
+      'first.lua': `held = setmetatable({}, { __gc = function() print('closing', GetCurrentResourceName()) end })
+StopThisResource()
 print('still running', GetCurrentResourceName())
 CreateThread(function() print('never runs') end)`,
       'second.lua': `print('never loads')`,
@@ -267,7 +268,27 @@ CreateThread(function() print('never runs') end)`,
       '[citizen-scripting-core] Creating script environments for a',
       '[resources] Stopping resource a',
       '[script:a] still running\ta',
+      '[script:a] closing\ta',
       '[resources] Started resource a',
+    ])
+  })
+
+  it('close their runtime as a call into it, as FiveM does, for the finalizers that run', async () => {
+    const proc = await createProcess()
+    proc
+      .add('a', {
+        'server.lua': `held = setmetatable({}, { __gc = function()
+    print('closing', GetCurrentResourceName(), GetInvokingResource())
+end })`,
+      })
+      .start()
+    proc.take()
+    proc.add('b', { 'server.lua': `StopResource('a')` }).start()
+    expect(proc.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for b',
+      '[resources] Stopping resource a',
+      '[script:a] closing\ta\tb',
+      '[resources] Started resource b',
     ])
   })
 

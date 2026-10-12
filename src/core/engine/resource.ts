@@ -207,7 +207,7 @@ export class Resource {
           this.#depth.set(runtime, depth)
         } else {
           this.#depth.delete(runtime)
-          if (this.#retired.delete(runtime)) runtime.close()
+          if (this.#retired.delete(runtime)) this.#close(runtime)
         }
       }
     }
@@ -282,7 +282,20 @@ export class Resource {
     this.#context = null
     this.manager.removeRuntime(this)
     if (this.#depth.has(runtime)) this.#retired.add(runtime)
-    else runtime.close()
+    else this.#close(runtime)
+  }
+
+  /**
+   * Closes a runtime as FiveM destroys one: as a call into it, for the
+   * finalizers that closing runs.
+   */
+  #close(runtime: ScriptRuntime): void {
+    this.manager.pushCall(this, runtime)
+    try {
+      runtime.close()
+    } finally {
+      this.manager.popCall()
+    }
   }
 
   #host(): ScriptHost {
