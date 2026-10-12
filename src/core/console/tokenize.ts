@@ -23,18 +23,10 @@ const BRACE = 0x7b
  * another argument could start. There, /* starts a comment whose end FiveM
  * looks for from its own *, so it skips only itself and the character
  * after it.
- *
- * Lines of bytes are decoded from UTF-8 as FiveM on Windows does, with
- * MSVC's codecvt_utf8, and give no arguments when it cannot decode them. It
- * decodes surrogates too, which FiveM encodes back one by one, but which
- * these strings keep as UTF-16 does: a high and a low one in a row are the
- * code point they spell.
  */
-export function tokenize(line: string | Uint8Array): string[] {
-  const points =
-    typeof line === 'string' ? Array.from(line, (char) => char.codePointAt(0)!) : decode(line)
+export function tokenize(line: string): string[] {
+  const points = Array.from(line, (char) => char.codePointAt(0)!)
   const args: string[] = []
-  if (points === undefined) return args
   const length = points.length
   // FiveM reads past the end of the line, where it finds the terminator.
   const at = (i: number) => (i < length ? points[i]! : 0)
@@ -89,12 +81,17 @@ export function tokenize(line: string | Uint8Array): string[] {
 }
 
 /**
- * The code points that UTF-8 bytes spell, as MSVC's codecvt_utf8 reads
- * them, or undefined if it cannot. It takes overlong sequences, and those
- * of surrogates and of five and six bytes, for code points up to U+10FFFF,
- * but no sequence that the bytes end within.
+ * A command line of bytes as FiveM on Windows decodes it from UTF-8, with
+ * MSVC's codecvt_utf8, or undefined if it cannot, when FiveM's tokenizer
+ * gives no arguments. It takes overlong sequences, and those of surrogates
+ * and of five and six bytes, for code points up to U+10FFFF, but no
+ * sequence that the bytes end within.
+ *
+ * FiveM encodes the surrogates it decodes back to UTF-8 one by one, while
+ * strings keep them as UTF-16 does: a high and a low one in a row are the
+ * code point they spell.
  */
-function decode(bytes: Uint8Array): number[] | undefined {
+export function decodeUtf8(bytes: Uint8Array): string | undefined {
   const points: number[] = []
   for (let i = 0; i < bytes.length;) {
     const lead = bytes[i]!
@@ -112,7 +109,7 @@ function decode(bytes: Uint8Array): number[] | undefined {
     points.push(point)
     i += extra + 1
   }
-  return points
+  return text(points, 0, points.length)
 }
 
 /** The string of code points `start` to `end`. */

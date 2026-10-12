@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { tokenize } from '../../src/core/console/tokenize.ts'
+import { decodeUtf8, tokenize } from '../../src/core/console/tokenize.ts'
 
 describe('tokenize', () => {
   it('splits lines at whitespace, control characters included', () => {
     expect(tokenize('say hello world')).toEqual(['say', 'hello', 'world'])
-    expect(tokenize('  a\x01b\tc \r\n d  ')).toEqual(['a', 'b', 'c', 'd'])
+    expect(tokenize('  a\x01b\tc \r\n d\x00e  ')).toEqual(['a', 'b', 'c', 'd', 'e'])
     expect(tokenize('')).toEqual([])
     expect(tokenize(' \t ')).toEqual([])
     expect(tokenize('a\x7fb')).toEqual(['a\x7fb'])
@@ -67,18 +67,25 @@ describe('tokenize', () => {
     // Code points read as bytes are no UTF-8, so this is no JSON.
     expect(tokenize('a ["é"]')).toEqual(['a', '[', 'é', ']'])
   })
+})
 
-  it('splits lines of bytes that MSVC decodes from UTF-8, and no others', () => {
-    const bytes = (...values: number[]) => tokenize(new Uint8Array(values))
-    expect(tokenize(new TextEncoder().encode('a é 😀'))).toEqual(['a', 'é', '😀'])
-    expect(bytes(0x61, 0x00, 0x62)).toEqual(['a', 'b'])
-    // Overlong sequences, those of surrogates, and of five and six bytes.
-    expect(bytes(0xc1, 0x81)).toEqual(['A'])
-    expect(bytes(0x61, 0xc0, 0xa0, 0x62)).toEqual(['a', 'b'])
-    expect(bytes(0xed, 0xa0, 0x80)).toEqual([String.fromCharCode(0xd800)])
-    expect(bytes(0xf8, 0x80, 0x80, 0x81, 0x81)).toEqual(['A'])
-    expect(bytes(0x61, 0xfc, 0x80, 0x80, 0x80, 0x80, 0x80, 0x62)).toEqual(['a', 'b'])
-    expect(bytes(0xf4, 0x8f, 0xbf, 0xbf)).toEqual([String.fromCodePoint(0x10ffff)])
+describe('decodeUtf8', () => {
+  const decode = (...values: number[]) => decodeUtf8(new Uint8Array(values))
+
+  it('decodes UTF-8 as MSVC does: overlong, surrogates, five and six bytes too', () => {
+    expect(decodeUtf8(new TextEncoder().encode('a é 😀'))).toBe('a é 😀')
+    expect(decode()).toBe('')
+    expect(decode(0x61, 0x00, 0x62)).toBe('a\x00b')
+    expect(decode(0xc1, 0x81)).toBe('A')
+    expect(decode(0xc0, 0xa0)).toBe(' ')
+    expect(decode(0xed, 0xa0, 0x80)).toBe(String.fromCharCode(0xd800))
+    expect(decode(0xed, 0xa0, 0x80, 0xed, 0xb0, 0x80)).toBe(String.fromCodePoint(0x10000))
+    expect(decode(0xf8, 0x80, 0x80, 0x81, 0x81)).toBe('A')
+    expect(decode(0xfc, 0x80, 0x80, 0x80, 0x80, 0x80)).toBe('\x00')
+    expect(decode(0xf4, 0x8f, 0xbf, 0xbf)).toBe(String.fromCodePoint(0x10ffff))
+  })
+
+  it('decodes nothing that MSVC cannot', () => {
     for (const invalid of [
       [0x61, 0x80],
       [0xbf],
@@ -94,7 +101,7 @@ describe('tokenize', () => {
       [0xfd, 0x80, 0x80, 0x80, 0x80, 0x80],
       [0x61, 0x20, 0xff],
     ]) {
-      expect(bytes(...invalid), String(invalid)).toEqual([])
+      expect(decode(...invalid), String(invalid)).toBe(undefined)
     }
   })
 })
