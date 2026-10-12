@@ -37,6 +37,15 @@ export function stoull(text: string): bigint | undefined {
 
 const MAX_UINT64 = 2n ** 64n - 1n
 
+/**
+ * The key of a string as MSVC's _stricmp sees it: the string up to its first
+ * NUL, where C strings end, with its ASCII letters lowercased. compareUtf8
+ * orders keys as _stricmp orders their strings.
+ */
+export function stricmpKey(text: string): string {
+  return text.split('\0', 1)[0]!.replace(/[A-Z]+/g, (letters) => letters.toLowerCase())
+}
+
 /** Orders strings as C++ orders their UTF-8 bytes, which is by code point. */
 export function compareUtf8(a: string, b: string): number {
   const length = Math.min(a.length, b.length)

@@ -1,4 +1,4 @@
-import { compareUtf8, stoull } from '../libc.ts'
+import { compareUtf8, stoull, stricmpKey } from '../libc.ts'
 import type { Security } from './security.ts'
 import { decodeUtf8, tokenize } from './tokenize.ts'
 
@@ -79,7 +79,7 @@ export class Commands {
   /** Registers a handler of the command `name`, and returns the token that unregisters it. */
   register(name: string, resource: string, handler: CommandHandler, arity = -1): number {
     const token = this.#nextToken++
-    const key = keyOf(name)
+    const key = stricmpKey(name)
     let index = this.#entries.length
     while (index > 0 && compareUtf8(key, this.#entries[index - 1]!.key) < 0) index--
     this.#entries.splice(index, 0, { name, resource, arity, key, handler, token })
@@ -104,7 +104,7 @@ export class Commands {
   }
 
   has(name: string): boolean {
-    const key = keyOf(name)
+    const key = stricmpKey(name)
     return this.#entries.some((entry) => entry.key === key)
   }
 
@@ -134,7 +134,7 @@ export class Commands {
    * printing why the last one did not.
    */
   invokeDirect(name: string, args: readonly string[], source = ''): void {
-    const key = keyOf(name)
+    const key = stricmpKey(name)
     const handlers = this.#entries.filter((entry) => entry.key === key).map((e) => e.handler)
     if (handlers.length === 0) {
       if (this.#fallback !== undefined) {
@@ -157,11 +157,6 @@ export class Commands {
     }
     this.#output.print('cmd', call.error)
   }
-}
-
-/** A command's name as _stricmp compares it: up to a NUL, with ASCII letters lowercased. */
-function keyOf(name: string): string {
-  return name.split('\0', 1)[0]!.replace(/[A-Z]+/g, (letters) => letters.toLowerCase())
 }
 
 /**

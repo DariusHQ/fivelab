@@ -1,4 +1,4 @@
-import { compareUtf8, stoull } from '../libc.ts'
+import { compareUtf8, stoull, stricmpKey } from '../libc.ts'
 import type { Commands, ConsoleOutput } from './commands.ts'
 import type { Security } from './security.ts'
 
@@ -105,9 +105,9 @@ export class Variables {
     const old = this.#find(name)
     if (old !== undefined) this.#drop(old, variable)
     const token = this.#nextToken++
-    const key = keyOf(name)
+    const key = stricmpKey(name)
     let index = this.#entries.length
-    while (index > 0 && compareUtf8(key, keyOf(this.#entries[index - 1]!.name)) < 0) index--
+    while (index > 0 && compareUtf8(key, stricmpKey(this.#entries[index - 1]!.name)) < 0) index--
     this.#entries.splice(index, 0, { name, flags, defaultFlags: flags, variable, token })
     return token
   }
@@ -202,8 +202,8 @@ export class Variables {
   }
 
   #find(name: string): Entry | undefined {
-    const key = keyOf(name)
-    return this.#entries.find((entry) => keyOf(entry.name) === key)
+    const key = stricmpKey(name)
+    return this.#entries.find((entry) => stricmpKey(entry.name) === key)
   }
 
   /**
@@ -237,11 +237,6 @@ export class Variables {
       variable.value === 'true' ? '1' : variable.value === 'false' ? '0' : variable.value
     variable.set(value === first ? second : first)
   }
-}
-
-/** A name as _stricmp compares it: up to a NUL, with ASCII letters lowercased. */
-function keyOf(name: string): string {
-  return name.split('\0', 1)[0]!.replace(/[A-Z]+/g, (letters) => letters.toLowerCase())
 }
 
 /** The names of the flags that FiveM's console says variables have, in its order. */
@@ -423,7 +418,7 @@ function parse<T extends VariableType>(type: T, text: string): VariableValue<T> 
     return (value === undefined ? undefined : Number(BigInt.asIntN(32, value))) as
       VariableValue<T> | undefined
   }
-  const word = keyOf(text)
+  const word = stricmpKey(text)
   if (word === 'true' || word === 'false') return (word === 'true') as VariableValue<T>
   return ((stoull(text) ?? 0n) !== 0n) as VariableValue<T>
 }
