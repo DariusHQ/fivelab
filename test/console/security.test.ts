@@ -40,7 +40,7 @@ describe('Security', () => {
     expect(may('command.say.loud')).toBe(false)
   })
 
-  it('gives principals the access of those they inherit from, but not everyone', () => {
+  it('gives principals the access of those they inherit from, but not of the parents of everyone', () => {
     const security = new Security()
     security.addInheritance('identifier.license:1', 'group.admin')
     security.addInheritance('group.admin', 'group.mod')
@@ -53,6 +53,9 @@ describe('Security', () => {
     expect(security.checkPrincipal('identifier.license:2', 'command.kick')).toBe(false)
     expect(security.checkPrincipal('identifier.license:1', 'command.me')).toBe(false)
     expect(security.checkPrincipal(EVERYONE, 'command.me')).toBe(true)
+    // FiveM does not look for the parents of everyone, even through those that inherit from it.
+    security.addInheritance('identifier.license:3', EVERYONE)
+    expect(security.checkPrincipal('identifier.license:3', 'command.me')).toBe(false)
     security.removeInheritance('Group.Admin', 'GROUP.MOD')
     expect(security.checkPrincipal('identifier.license:1', 'command.kick')).toBe(false)
   })

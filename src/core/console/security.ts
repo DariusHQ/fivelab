@@ -97,8 +97,7 @@ export class Security {
    * one of its parents, such as command for command.say, and none denies it.
    */
   checkPrincipal(principal: string, object: string): boolean {
-    const principals = this.#ancestors(lower(principal))
-    principals.add(EVERYONE)
+    const principals = this.#principalsOf(lower(principal))
     // The object, then each of its parents: what comes before its dots.
     const objects = [lower(object)]
     for (let last = objects[0]!; last.includes('.'); objects.push(last)) {
@@ -113,9 +112,14 @@ export class Security {
     return allowed
   }
 
-  /** A principal and the principals it inherits from, through others too. */
-  #ancestors(principal: string): Set<string> {
-    const found = new Set([principal])
+  /**
+   * The principals that `principal` is, as FiveM finds them: itself,
+   * everyone, and those it inherits from, through others too. Starting with
+   * everyone, FiveM does not look for the parents of everyone, unless
+   * `principal` is everyone.
+   */
+  #principalsOf(principal: string): Set<string> {
+    const found = new Set([principal, EVERYONE])
     const pending = [principal]
     while (pending.length > 0) {
       const child = pending.pop()!
