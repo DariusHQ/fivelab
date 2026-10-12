@@ -1,7 +1,8 @@
-import { compareUtf8, lowerAscii } from '../libc.ts'
+import { compareUtf8 } from '../libc.ts'
 import { hashString } from '../natives/names.ts'
 import type { ConsoleOutput } from './commands.ts'
 import type { ConsoleContext } from './context.ts'
+import { namePattern } from './patterns.ts'
 import { VariableFlags } from './variables.ts'
 
 /**
@@ -24,7 +25,7 @@ export interface ChannelFilter {
 }
 
 interface Filter extends ChannelFilter {
-  readonly regex: RegExp
+  readonly matches: (channel: string) => boolean
 }
 
 /**
@@ -50,9 +51,8 @@ export class Printer implements ConsoleOutput {
 
   print(channel: string, text: string): void {
     let actions = 0
-    const name = lowerAscii(channel)
-    for (const { regex, action } of this.#filters) {
-      if (regex.test(name)) actions |= action
+    for (const { matches, action } of this.#filters) {
+      if (matches(channel)) actions |= action
     }
     // FiveM drops what filters print in developer mode only unless the mode is not 0.
     if (actions & ChannelAction.devOnly && this.developer === 0) actions = ChannelAction.drop
@@ -79,7 +79,7 @@ export class Printer implements ConsoleOutput {
     this.removeFilter(pattern, action)
     let index = this.#filters.length
     while (index > 0 && compareFilters({ pattern, action }, this.#filters[index - 1]!) < 0) index--
-    this.#filters.splice(index, 0, { pattern, action, regex: channelRegex(pattern) })
+    this.#filters.splice(index, 0, { pattern, action, matches: namePattern(pattern) })
   }
 
   removeFilter(pattern: string, action: number): void {
@@ -139,19 +139,4 @@ function formatAction(action: number): string {
 
 function compareFilters(a: ChannelFilter, b: ChannelFilter): number {
   return compareUtf8(a.pattern, b.pattern) || a.action - b.action
-}
-
-/**
- * The channels a filter's pattern matches, as FiveM makes its regex: the
- * pattern as written, but for * for any text and spaces or + between
- * patterns, matched against whole names whose ASCII letters may differ in
- * case, which FiveLab lowercases.
- */
-function channelRegex(pattern: string): RegExp {
-  const source = pattern
-    .replace(/[.^$|()[\]{}?\\]/g, '\\$&')
-    .replaceAll(' ', '|')
-    .replaceAll('+', '|')
-    .replaceAll('*', '.*')
-  return new RegExp(`^(?:${lowerAscii(source)})$`)
 }

@@ -9,6 +9,7 @@ export {
   type ParamValue,
 } from './commands.ts'
 export { ConsoleContext, type ConsoleContextOptions } from './context.ts'
+export { namePattern } from './patterns.ts'
 export {
   addPrinterCommands,
   ChannelAction,
