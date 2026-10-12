@@ -248,6 +248,28 @@ export class ResourceManager {
   }
 
   /**
+   * Counts another holder of the function that a function reference names,
+   * as FiveM's script host does, and returns the reference the holder
+   * keeps, or null if no runtime has the reference.
+   */
+  duplicateFunctionReference(ref: string): string | null {
+    const found = this.lookUpRef(ref)
+    if (found === undefined) return null
+    const { resource, runtime, index } = found
+    // FiveM names the runtime's resource, which may provide the name the reference has.
+    const kept = resource.enter(() => runtime.duplicateRef(index))
+    return `${resource.name}:${runtime.host.instanceId}:${kept}`
+  }
+
+  /** Takes a holder of the function that a function reference names away, as FiveM's script host does. */
+  deleteFunctionReference(ref: string): void {
+    const found = this.lookUpRef(ref)
+    if (found === undefined) return
+    const { resource, runtime, index } = found
+    resource.enter(() => runtime.deleteRef(index))
+  }
+
+  /**
    * Runs a tick as FiveM does: it runs the commands of the console's buffer
    * as the console, triggers the queued events, then resumes the threads
    * that are due in all runtimes. It takes the due threads of every runtime

@@ -22,12 +22,7 @@ export function refNatives(): NativeDefinition<NativeContext>[] {
           nullReference(ctx, 'DuplicateFunctionReference', 'returns nil')
           return null
         }
-        const found = ctx.manager.lookUpRef(ref)
-        if (found === undefined) return null
-        const { resource, runtime, index } = found
-        // FiveM names the runtime's resource, which may provide the name the reference has.
-        const kept = resource.enter(() => runtime.duplicateRef(index))
-        return `${resource.name}:${runtime.host.instanceId}:${kept}`
+        return ctx.manager.duplicateFunctionReference(ref)
       },
     ),
     defineNative(
@@ -37,10 +32,7 @@ export function refNatives(): NativeDefinition<NativeContext>[] {
           nullReference(ctx, 'DeleteFunctionReference', 'does nothing')
           return
         }
-        const found = ctx.manager.lookUpRef(ref)
-        if (found === undefined) return
-        const { resource, runtime, index } = found
-        resource.enter(() => runtime.deleteRef(index))
+        ctx.manager.deleteFunctionReference(ref)
       },
     ),
   ]
