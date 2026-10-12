@@ -278,7 +278,7 @@ export class Resource {
     }
     const lua = scripts.filter((path) => path.includes('.lua'))
     if (lua.length === 0) return
-    this.manager.log('citizen-scripting-core', `Creating script environments for ${this.name}\n`)
+    this.manager.trace('citizen-scripting-core', `Creating script environments for ${this.name}\n`)
     if (this.manager.side === 'client') {
       const natives = clientNativesFile(this.metadata)
       if (natives !== 'natives_universal.lua') {
@@ -296,7 +296,7 @@ export class Resource {
       if (this.#runtime !== runtime) break
       const source = this.#openScript(path)
       const loaded = source !== undefined && this.enter(() => runtime.runFile(path, source))
-      if (!loaded) this.manager.log('citizen-scripting-core', `Failed to load script ${path}.\n`)
+      if (!loaded) this.manager.trace('citizen-scripting-core', `Failed to load script ${path}.\n`)
     }
   }
 

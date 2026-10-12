@@ -219,6 +219,15 @@ files { 'html/*', 'stream/**' }`,
     ])
   })
 
+  it('trace their names and those of scripts up to the first NUL, as FiveM does', async () => {
+    const proc = await createProcess()
+    proc.add('a\0b', {}, [['server_script', '@c\0d/main.lua']]).start()
+    proc.manager.log('citizen-scripting-core', '\n')
+    expect(proc.take().filter((line) => line.startsWith('[citizen-scripting-core]'))).toEqual([
+      '[citizen-scripting-core] Creating script environments for aFailed to load script @c',
+    ])
+  })
+
   it('have no runtime without Lua scripts, and say which scripts FiveLab skips', async () => {
     const proc = await createProcess()
     const res = proc.add('a', { 'server.js': `console.log('js')` })

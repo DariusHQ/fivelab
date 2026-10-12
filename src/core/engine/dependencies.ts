@@ -43,8 +43,8 @@ export class Dependencies {
       this.#load(resource, 'dependency', errors) && this.#load(resource, 'dependencie', errors)
     if (loaded && errors.length === 0) return true
     if (errors.length > 0) {
-      this.#log(`Resource '${resource.name}' can't run:\n`)
-      errors.forEach((error, i) => this.#log(`${` ${i + 1}`.padStart(3)}. ${error}\n`))
+      this.#trace(`Resource '${resource.name}' can't run:\n`)
+      errors.forEach((error, i) => this.#trace(`${` ${i + 1}`.padStart(3)}. ${error}\n`))
     }
     return false
   }
@@ -63,13 +63,13 @@ export class Dependencies {
       }
       const other = this.#manager.getResource(dependency)
       if (other === undefined) {
-        this.#log(`Could not find dependency ${dependency} for resource ${resource.name}.\n`)
+        this.#trace(`Could not find dependency ${dependency} for resource ${resource.name}.\n`)
         return false
       }
       add(this.#dependants, other.name, resource.name)
       if (other.state === 'starting' || other.state === 'started') continue
       if (!other.start()) {
-        this.#log(`Could not start dependency ${dependency} for resource ${resource.name}.\n`)
+        this.#trace(`Could not start dependency ${dependency} for resource ${resource.name}.\n`)
         add(this.#waiting, other.name, resource.name)
         return false
       }
@@ -105,8 +105,8 @@ export class Dependencies {
     this.#dependants.delete(resource.name)
   }
 
-  #log(text: string): void {
-    this.#manager.log('citizen-resources-core', text)
+  #trace(text: string): void {
+    this.#manager.trace('citizen-resources-core', text)
   }
 }
 

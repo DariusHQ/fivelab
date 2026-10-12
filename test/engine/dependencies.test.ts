@@ -56,6 +56,13 @@ describe('dependencies', () => {
     ])
   })
 
+  it('trace what they print up to its first NUL, as FiveM does', async () => {
+    const proc = await createProcess()
+    expect(proc.add('a', {}, [['dependency', 'missing\0b']]).start()).toBe(false)
+    proc.manager.log('citizen-resources-core', '\n')
+    expect(proc.take()).toEqual(['[citizen-resources-core] Could not find dependency missing'])
+  })
+
   it('start resources once a dependency that did not start starts, before it reports its start', async () => {
     const proc = await createProcess()
     let allowed = false
