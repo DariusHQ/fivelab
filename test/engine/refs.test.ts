@@ -182,3 +182,194 @@ collectgarbage()`,
     ])
   })
 })
+
+describe('calls by reference', () => {
+  it('call functions of other runtimes, which the caller invokes', async () => {
+    const proc = await createProcess()
+    start(
+      proc,
+      'b',
+      `AddEventHandler('call', function(add)
+    print(add(2, 3))
+    TriggerEvent('back', add)
+end)`,
+    )
+    expect(
+      start(
+        proc,
+        'a',
+        `AddEventHandler('back', function(add)
+    print(add(10, 20))
+end)
+TriggerEvent('call', function(x, y)
+    print(GetCurrentResourceName(), GetInvokingResource())
+    return x + y, 'sum'
+end)`,
+      ),
+    ).toEqual([
+      '[script:a] a\tb',
+      '[script:b] 5\tsum',
+      // b passed the function on through one of its own, which calls it.
+      '[script:a] a\tb',
+      '[script:a] 30\tsum',
+    ])
+  })
+
+  it('report errors of the functions they call, which then return nothing', async () => {
+    const proc = await createProcess()
+    start(
+      proc,
+      'b',
+      `AddEventHandler('call', function(failing)
+    print(pcall(failing))
+end)`,
+    )
+    expect(
+      start(
+        proc,
+        'a',
+        `local function inner()
+    error('broken')
+end
+TriggerEvent('call', function()
+    inner()
+end)`,
+      ),
+    ).toEqual([
+      '[script:a] ^1SCRIPT ERROR: @a/main.lua:2: broken^7',
+      '[script:a] ^3> inner^7 (^5@a/main.lua^7:2)',
+      '[script:a] ^3> ref^7 (^5@a/main.lua^7:5)',
+      '[script:a] ^3> handler^7 (^5@b/main.lua^7:2)',
+      '[script:b] false\tnil',
+    ])
+  })
+
+  it('report errors of the routine that calls them, which then gives nil', async () => {
+    const proc = await createProcess()
+    start(
+      proc,
+      'b',
+      `AddEventHandler('call', function(fn)
+    print(pcall(fn))
+end)`,
+    )
+    // The function returns what msgpack cannot pack.
+    const lines = start(
+      proc,
+      'a',
+      `local proxy = getmetatable(msgpack.unpack(msgpack.pack(print)))
+TriggerEvent('call', function()
+    return setmetatable({}, proxy)
+end)`,
+    )
+    expect(lines.slice(0, 2)).toEqual([
+      '[script:a] Error running call reference function for resource a: Unknown funcref type: 10 table',
+      '[script:a] stack traceback:',
+    ])
+    // The routine runs on the main thread, as in FiveM, not in the thread that called out.
+    expect(lines.filter((line) => line.includes('main.lua'))).toEqual([])
+    expect(lines.at(-1)).toMatch(
+      /^\[script:b\] false\tfivelab:\/refs\.lua:\d+: bad argument #1 to 'msgpack_unpack' \(string expected, got nil\)$/,
+    )
+  })
+
+  it('fail for references that name no function', async () => {
+    const proc = await createProcess()
+    start(
+      proc,
+      'b',
+      `AddEventHandler('keep', function(fn)
+    kept = fn
+end)
+AddEventHandler('later', function()
+    print(pcall(kept))
+end)`,
+    )
+    expect(
+      start(
+        proc,
+        'a',
+        `print(select('#', Citizen.InvokeFunctionReference('a:18467:7', msgpack.pack_args())))
+print(pcall(Citizen.InvokeFunctionReference, 'missing:41:0', ''))
+TriggerEvent('keep', print)`,
+      ),
+    ).toEqual([
+      '[script:a] Invalid ref call attempt: 7',
+      '[script:a] 1',
+      '[script:a] false\tExecution of function reference in script host failed: ',
+    ])
+    proc.manager.getResource('a')!.stop()
+    proc.take()
+    proc.manager.events.trigger('later', new Uint8Array([0x90]))
+    expect(proc.take()).toEqual([
+      '[script:b] false\tExecution of function reference in script host failed: ',
+    ])
+  })
+
+  it('check the arguments of Citizen.InvokeFunctionReference as FiveM does', async () => {
+    const proc = await createProcess()
+    expect(
+      start(
+        proc,
+        'a',
+        `local ref = Citizen.GetFunctionReference(function(...) return select('#', ...) end)
+print(table.unpack(msgpack.unpack(Citizen.InvokeFunctionReference(ref, msgpack.pack_args(1, 2)))))
+print(pcall(Citizen.InvokeFunctionReference))
+print(pcall(Citizen.InvokeFunctionReference, ref))
+print(pcall(Citizen.InvokeFunctionReference, {}, ''))`,
+      ),
+    ).toEqual([
+      '[script:a] 2',
+      "[script:a] false\tbad argument #2 to '?' (string expected, got no value)",
+      "[script:a] false\tbad argument #2 to '?' (string expected, got no value)",
+      "[script:a] false\tbad argument #1 to '?' (string expected, got table)",
+    ])
+  })
+
+  it('queue the threads the functions create once the call returns', async () => {
+    const proc = await createProcess()
+    start(
+      proc,
+      'b',
+      `AddEventHandler('keep', function(fn)
+    kept = fn
+end)
+AddEventHandler('later', function()
+    kept()
+end)`,
+    )
+    start(
+      proc,
+      'a',
+      `TriggerEvent('keep', function()
+    CreateThread(function()
+        print('created')
+    end)
+end)`,
+    )
+    proc.manager.events.trigger('later', new Uint8Array([0x90]))
+    proc.tickAt(0)
+    expect(proc.take()).toEqual(['[script:a] created'])
+  })
+
+  it('report errors of functions that fail after they waited when no thread awaits them', async () => {
+    const proc = await createProcess()
+    expect(
+      start(
+        proc,
+        'a',
+        `local ref = Citizen.GetFunctionReference(function()
+    Wait(0)
+    error('late')
+end)
+local results = msgpack.unpack(Citizen.InvokeFunctionReference(ref, msgpack.pack_args()))
+print(type(rawget(results[1], '__cfx_async_retval')))`,
+      ),
+    ).toEqual(['[script:a] table'])
+    proc.tickAt(0)
+    expect(proc.take()).toEqual([
+      '[script:a] ^1SCRIPT ERROR: @a/main.lua:3: late^7',
+      '[script:a] ^3> ref^7 (^5@a/main.lua^7:3)',
+    ])
+  })
+})

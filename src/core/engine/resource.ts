@@ -302,6 +302,7 @@ export class Resource {
       diagnose: (message) => manager.output.diagnose(name, message),
       submitBoundary: (which, id) => manager.submitBoundary(which, id),
       formatStackTrace: () => manager.formatStackTrace(null) ?? '',
+      invokeFunctionReference: (ref, args) => manager.invokeFunctionReference(ref, args),
     }
   }
 

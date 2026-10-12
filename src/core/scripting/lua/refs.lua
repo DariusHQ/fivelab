@@ -1,7 +1,7 @@
 --[[
     FiveLab function references: Citizen.GetFunctionReference, the routines
     the runtime runs for the references of its functions, and the proxies
-    that stand for the functions of other runtimes.
+    that call the functions of other runtimes.
 
     A reference names a function of a runtime, so that other runtimes can
     call it. Citizen.CanonicalizeRef formats it from the reference's index,
@@ -13,18 +13,30 @@
     runtime forgets the function.
 
     msgpack packs functions as their references, which unpack as proxies:
-    tables that hold the reference until they are collected, as in FiveM.
+    tables that call the function through Citizen.InvokeFunctionReference,
+    and hold the reference until they are collected, as in FiveM.
 
-    Loaded by the runtime after the events script, with the table the
-    FiveLab scripts share.
+    Loaded by the runtime after the events script, with its host functions
+    and the table the FiveLab scripts share.
 ]]
 
-local fivelab = ...
+local host, fivelab = ...
 
 local type, error, rawget, setmetatable = type, error, rawget, setmetatable
+local debug_getinfo = debug.getinfo
 local msgpack = msgpack
 
+-- Argument errors name a function by the variable it is called through, so
+-- the functions whose arguments can be wrong have the names FiveM gives them.
+local table_unpack = table.unpack
+local msgpack_pack = msgpack.pack
+local msgpack_unpack = msgpack.unpack
+local msgpack_pack_args = msgpack.pack_args
+local Citizen_InvokeFunctionReference = Citizen.InvokeFunctionReference
+
 local Citizen = Citizen
+local formatStackTrace = host.formatStackTrace
+local runWithBoundaryEnd = fivelab.runWithBoundaryEnd
 
 -- The functions that references name, by index, with their holders.
 local references = {}
@@ -76,10 +88,26 @@ local function unpackReference(ref)
     return setmetatable({ __cfx_functionReference = ref }, proxy)
 end
 
+-- Calls the function of a proxy in its runtime, as a call out of this one.
+local function callProxy(self, ...)
+    local ref = rawget(self, '__cfx_functionReference')
+    local args = msgpack_pack_args(...)
+    local packed = runWithBoundaryEnd(function()
+        return Citizen_InvokeFunctionReference(ref, args)
+    end)
+    local results = msgpack_unpack(packed)
+    -- The function failed, or the reference names none.
+    if not results then
+        error()
+    end
+    return table_unpack(results)
+end
+
 proxy = msgpack.extend({
     __ext = EXT_FUNCREF,
     __pack = packReference,
     __unpack = unpackReference,
+    __call = callProxy,
     __gc = function(self)
         DeleteFunctionReference(rawget(self, '__cfx_functionReference'))
     end,
@@ -100,6 +128,56 @@ msgpack.extend({
 msgpack.settype('function', EXT_FUNCREF)
 
 --[[ Routines the runtime runs ]]
+
+-- How the call ref routine reports an error of the function it calls, as
+-- FiveM's does: SCRIPT ERROR, with the stack trace of the runtimes that are
+-- running.
+local function describeError(err)
+    return string.format('^1SCRIPT ERROR: %s^7\n%s', err or '', formatStackTrace())
+end
+
+-- Calls the function of a reference with the arguments that msgpack packed,
+-- and returns its results packed, as FiveM's call ref routine does. The
+-- function runs in a thread of its own: if it fails, the results are nil,
+-- and if it waits, a function that takes a callback, which the thread calls
+-- with the results, or false and the error, once the function returns.
+function fivelab.callRef(index, args)
+    local entry = references[index]
+    if not entry then
+        Citizen.Trace('Invalid ref call attempt: ' .. index .. '\n')
+        return msgpack_pack(nil)
+    end
+    local ref = entry.fn
+    local results, failure = false, nil
+    local callback = {}
+    -- FiveM names the thread after the function, for its profiler.
+    local info = debug_getinfo(ref)
+    local name = ('ref call [%s[%d..%d]]'):format(info.short_src, info.linedefined, info.lastlinedefined)
+    local waited = Citizen.CreateThreadNow(function()
+        local ok, err = xpcall(function()
+            -- Called through an upvalue named ref, which stack traces name it by.
+            results = { ref(table_unpack(msgpack_unpack(args))) }
+        end, describeError)
+        if not ok then
+            failure = err or ''
+        end
+        if callback.fn then
+            callback.fn(results, failure)
+        elseif failure then
+            Citizen.Trace(failure)
+        end
+    end, name)
+    if waited then
+        return msgpack_pack({ {
+            __cfx_async_retval = function(fn)
+                callback.fn = fn
+            end,
+        } })
+    elseif failure then
+        return msgpack_pack(nil)
+    end
+    return msgpack_pack(results)
+end
 
 -- Counts another holder of a reference, and returns the index it keeps, or
 -- -1 for a reference the runtime does not have.

@@ -69,6 +69,13 @@ export interface ScriptHost {
    * FORMAT_STACK_TRACE formats it for SCRIPT ERROR.
    */
   formatStackTrace(): string
+  /**
+   * Calls the function that a function reference names, as FiveM's script
+   * host does: in the runtime that has it, with arguments that msgpack
+   * packed. Returns the results packed, null if the runtime failed to call
+   * the function, or undefined if no runtime has the reference.
+   */
+  invokeFunctionReference(ref: string, args: Uint8Array): Uint8Array | null | undefined
 }
 
 /** The boundaries of a call into a runtime; see ScriptHost.submitBoundary. */
@@ -97,7 +104,7 @@ return t`
 /** Reads the entry points the FiveLab scripts leave in their shared table. */
 const ENTRY_POINTS = `local fivelab = ...
 return fivelab.collect, fivelab.resume, fivelab.runFile, fivelab.flush, fivelab.walkStack,
-    fivelab.duplicateRef, fivelab.deleteRef`
+    fivelab.callRef, fivelab.duplicateRef, fivelab.deleteRef`
 
 function release(...values: LuaValue[]): void {
   for (const value of values) if (value instanceof LuaRef) value.release()
@@ -136,6 +143,7 @@ export class ScriptRuntime implements NativeCaller {
   #walkStack: LuaRef | undefined
   /** The frames walkStack collects while the scheduler walks them. */
   #walked: StackFrame[] | undefined
+  #callRef: LuaRef | undefined
   #duplicateRef: LuaRef | undefined
   #deleteRef: LuaRef | undefined
   #resultAsObject: LuaRef | undefined
@@ -276,6 +284,28 @@ export class ScriptRuntime implements NativeCaller {
   }
 
   /**
+   * Calls the function of the reference at `index` with arguments that
+   * msgpack packed, as FiveM's call ref routine does, and returns its results
+   * packed. The function runs in a thread of its own, which reports its
+   * errors. Like FiveM, this reports errors of the routine itself, and then
+   * gives null.
+   */
+  callRef(index: number, args: Uint8Array): Uint8Array | null {
+    try {
+      const options = { onMain: true, bytes: true }
+      const [packed] = this.state.callWith(options, this.#callRef!, index, args)
+      // The routine returns what msgpack.pack returns: a string.
+      return packed as Uint8Array
+    } catch (error) {
+      if (!(error instanceof LuaError)) throw error
+      this.#reportRoutineError('call reference', error)
+      return null
+    } finally {
+      this.state.call(this.#flush!)
+    }
+  }
+
+  /**
    * Counts another holder of the reference at `index`, as FiveM's ref
    * duplication routine does, and returns the index it keeps, or -1 for a
    * reference the runtime does not have. Like FiveM, this reports errors;
@@ -383,18 +413,16 @@ export class ScriptRuntime implements NativeCaller {
     const [fivelab] = state.run('return {}', '=fivelab:shared')
     state.run(schedulerSource, '@fivelab:/scheduler.lua', hostTable, fivelab)
     state.run(eventsSource, '@fivelab:/events.lua', hostTable, fivelab)
-    state.run(refsSource, '@fivelab:/refs.lua', fivelab)
-    const [collect, resume, runFile, flush, walkStack, duplicateRef, deleteRef] = state.run(
-      ENTRY_POINTS,
-      '=fivelab:entry',
-      fivelab,
-    )
+    state.run(refsSource, '@fivelab:/refs.lua', hostTable, fivelab)
+    const [collect, resume, runFile, flush, walkStack, callRef, duplicateRef, deleteRef] =
+      state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
     release(hostTable, fivelab)
     this.#collect = functionRef(collect)
     this.#resume = functionRef(resume)
     this.#runFile = functionRef(runFile)
     this.#flush = functionRef(flush)
     this.#walkStack = functionRef(walkStack)
+    this.#callRef = functionRef(callRef)
     this.#duplicateRef = functionRef(duplicateRef)
     this.#deleteRef = functionRef(deleteRef)
     state.setGlobal('dofile', null)
@@ -460,6 +488,24 @@ export class ScriptRuntime implements NativeCaller {
           state.hostFunction(
             (args) => `${host.resource}:${host.instanceId}:${BigInt.asIntN(32, args.integer(1))}`,
           ),
+        ),
+      ],
+      [
+        'InvokeFunctionReference',
+        // FiveM checks the arguments before the reference, which it reads
+        // up to its first NUL.
+        check(
+          '<ss',
+          state.hostFunction((args) => {
+            const ref = String(args.get(1)).split('\0', 1)[0]!
+            const results = host.invokeFunctionReference(ref, args.bytes(2)!)
+            if (results !== undefined) return results
+            // FiveM ends the message with the last error of the script host,
+            // which natives set when they fail through it: those of other
+            // languages, and of use_experimental_fxv2_oal on servers. FiveLab
+            // has none of them yet.
+            throw new LuaError('Execution of function reference in script host failed: ')
+          }),
         ),
       ],
       // FiveM ignores tick routines. It keeps the first of the other

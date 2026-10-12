@@ -193,6 +193,19 @@ export class ResourceManager {
   }
 
   /**
+   * Calls the function that a function reference names, as FiveM's script
+   * host does: in the runtime that lookUpRef finds, with arguments that
+   * msgpack packed. Returns the results packed, null if the runtime failed
+   * to call the function, or undefined if no runtime has the reference.
+   */
+  invokeFunctionReference(ref: string, args: Uint8Array): Uint8Array | null | undefined {
+    const found = this.lookUpRef(ref)
+    if (found === undefined) return undefined
+    const { resource, runtime, index } = found
+    return resource.enter(() => runtime.callRef(index, args))
+  }
+
+  /**
    * Runs a tick as FiveM does: it triggers the queued events, then resumes
    * the threads that are due in all runtimes. It takes the due threads of
    * every runtime before it resumes any, so that threads queued during the

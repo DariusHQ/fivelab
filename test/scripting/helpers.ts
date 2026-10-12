@@ -111,6 +111,12 @@ export async function createResource(options: ResourceOptions = {}): Promise<Tes
           .walkStack(boundaries)
           .map(({ name, file, line }) => `^3> ${name}^7 (^5${file}^7:${line})\n`)
           .join('')),
+    // Calls the references of the runtime itself, the only one, with id 1.
+    invokeFunctionReference: (ref, args) => {
+      const prefix = `${name}:1:`
+      if (!ref.startsWith(prefix)) return undefined
+      return script.callRef(Number.parseInt(ref.slice(prefix.length), 10), args)
+    },
   })
   const tickAt = (at: number) => {
     time = at
