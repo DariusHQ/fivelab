@@ -1,18 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ResourceDefinition } from '../../src/core/engine/index.ts'
 import { pack } from '../../src/core/engine/msgpack.ts'
-import { createProcess, type TestProcess } from './helpers.ts'
-
-/** Starts a resource with `files` and returns the lines written but those of every start. */
-function start(proc: TestProcess, name: string, files: ResourceDefinition['files']): string[] {
-  proc.add(name, files).start()
-  const starting = [
-    `[citizen-scripting-core] Creating script environments for ${name}`,
-    `[resources] Started resource ${name}`,
-  ]
-  return proc.take().filter((line) => !starting.includes(line))
-}
+import { createProcess, startResource as start } from './helpers.ts'
 
 const NO_ARGUMENTS = pack([])
 

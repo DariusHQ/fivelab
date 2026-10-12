@@ -23,6 +23,7 @@ import { Constraints, DEFAULT_GAME_BUILD, FIVEM_BUILD, parseGameBuild } from './
 import type { NativeContext } from './context.ts'
 import { Dependencies } from './dependencies.ts'
 import { EventManager } from './events.ts'
+import { MemoryFileSystem, type FileSystem } from './files.ts'
 import { INT32_MIN } from './hook.ts'
 import { KvpStore } from './kvp.ts'
 import { atoi, compareUtf8, strtoull } from '../libc.ts'
@@ -61,6 +62,12 @@ export interface ResourceManagerOptions {
   readonly gameBuild?: number
   /** The KVP of the resources, which FiveM keeps in a database: an empty one by default. */
   readonly kvp?: KvpStore
+  /**
+   * The files of the process, which its resources are in: on servers, the
+   * directory FiveM's server runs in, and on clients, what servers sent,
+   * where FiveM mounts it. Empty files in memory by default.
+   */
+  readonly files?: FileSystem
 }
 
 /** What a function reference names; see ResourceManager.lookUpRef. */
@@ -110,6 +117,8 @@ export class ResourceManager {
   readonly consoleBuffer: ConsoleBuffer | undefined
   /** The KVP of the resources, in the database of the process. */
   readonly kvp: KvpStore
+  /** The files of the process, which its resources are in. */
+  readonly files: FileSystem
   readonly natives = new NativeRegistry<NativeContext>()
   readonly events = new EventManager(this)
   /** What dependencies such as /server:5181 test, which only servers enforce. */
@@ -141,6 +150,7 @@ export class ResourceManager {
     this.output = options.output
     this.#time = options.time
     this.kvp = options.kvp ?? new KvpStore()
+    this.files = options.files ?? new MemoryFileSystem()
     this.printer = new Printer((channel, text) => this.output.write(channel, text))
     const server = this.side === 'server'
     if (server) {

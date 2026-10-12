@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ManifestError, type NativeContext } from '../../src/core/engine/index.ts'
+import { ManifestError, MemoryFileSystem, type NativeContext } from '../../src/core/engine/index.ts'
 import { defineNative, hashString } from '../../src/core/natives/index.ts'
 import { createProcess } from './helpers.ts'
 
@@ -34,6 +34,43 @@ server_scripts { 'first.lua', 'second.lua' }`,
       ),
     )
     expect(proc.manager.getResource('a')).toBe(undefined)
+    expect(proc.manager.files.list('resources/a')).toBe(undefined)
+  })
+
+  it('add the files they are given to those of the process, in their directory', async () => {
+    const proc = await createProcess()
+    const { files } = proc.manager
+    proc.add('a', { './main.lua': `print('a')`, 'html\\index.html': new Uint8Array([1, 2]) }, [])
+    proc.add('b', {})
+    expect(files.list('resources/a')).toEqual([
+      { name: 'main.lua', directory: false },
+      { name: 'html', directory: true },
+    ])
+    expect(files.read('resources/a/main.lua')).toEqual(new TextEncoder().encode(`print('a')`))
+    expect(files.read('resources/a/html/index.html')).toEqual(new Uint8Array([1, 2]))
+    expect(files.list('resources/b')).toEqual([])
+  })
+
+  it('have the files of the process in their directory, as they are when they start', async () => {
+    const files = new MemoryFileSystem({
+      'resources/[local]/a/fxmanifest.lua': `fx_version 'cerulean'
+game 'gta5'
+server_script 'server/*.lua'`,
+      'resources/[local]/a/server/main.lua': `print('main')`,
+    })
+    const proc = await createProcess({ files })
+    const a = proc.manager.addResource('a', { path: 'resources/[local]/a' })
+    expect(a.entries('server_script')).toEqual(['server/*.lua'])
+    a.start()
+    a.stop()
+    files.write('resources/[local]/a/server/main.lua', new TextEncoder().encode(`print('changed')`))
+    files.write('resources/[local]/a/server/new.lua', new TextEncoder().encode(`print('new')`))
+    a.start()
+    expect(proc.take().filter((line) => line.startsWith('[script:'))).toEqual([
+      '[script:a] main',
+      '[script:a] changed',
+      '[script:a] new',
+    ])
   })
 
   it('run their shared scripts, then those of their side, when they start', async () => {
@@ -892,6 +929,9 @@ save('sub', 'x', -1)
 save('sub/', 'x', -1)
 save('.', 'x', -1)
 save('', 'x', -1)
+save('nothing/', 'x', -1)
+save('nothing/.', 'x', -1)
+save('nothing/x/..', 'x', -1)
 print(SaveResourceFile('a', '../other/data/y.json', 'y', -1), LoadResourceFile('other', 'data/y.json'))
 print(SaveResourceFile('other', 'x.txt', 'x', -1), LoadResourceFile('other', 'x.txt'))
 print(SaveResourceFile('missing', nil, nil, 0))
@@ -922,6 +962,10 @@ print(SaveResourceFile('a', 'negative.txt', 'xy', -2), LoadResourceFile('a', 'ne
       '[script:a] sub/\tfalse\tnil',
       '[script:a] .\tfalse\tnil',
       '[script:a] \tfalse\tnil',
+      // Names of directories make no files, whether the directories are there or not.
+      '[script:a] nothing/\tfalse\tnil',
+      '[script:a] nothing/.\tfalse\tnil',
+      '[script:a] nothing/x/..\tfalse\tnil',
       '[script:a] 1\ty',
       '[script:a] false\tnil',
       '[script:a] false',
@@ -934,10 +978,11 @@ print(SaveResourceFile('a', 'negative.txt', 'xy', -2), LoadResourceFile('a', 'ne
       '[script:a] 1\txy',
       '[resources] Started resource a',
     ])
+    // Files out of all resources go to the files of the process all the same.
+    expect(proc.manager.files.read('outside.txt')).toEqual(new Uint8Array([120]))
     expect(proc.diagnostics).toEqual([
-      'a: SaveResourceFile cannot write missing/x.txt in a: FiveM creates no directories, and a has no missing directory with files in it.',
+      'a: SaveResourceFile cannot write missing/x.txt in a: there is no directory resources/a/missing, and FiveM creates none.',
       'a: SaveResourceFile cannot write x.txt in other: FiveM lets resources write the files of others only with add_filesystem_permission.',
-      'a: SaveResourceFile wrote ../../outside.txt of a outside of any resource, which FiveLab does not keep.',
       'a: SaveResourceFile was told to write 10 bytes of data that has 2. FiveM would write what follows the data in memory, which FiveLab does not emulate: it writes the data.',
       'a: SaveResourceFile was told to write -2 bytes of data that has 2. FiveM would write what follows the data in memory, which FiveLab does not emulate: it writes the data.',
     ])

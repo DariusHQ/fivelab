@@ -1,5 +1,6 @@
 import {
   ResourceManager,
+  type FileSystem,
   type KvpStore,
   type NativeContext,
   type Resource,
@@ -14,7 +15,11 @@ export interface ProcessOptions {
   readonly oneSync?: boolean
   readonly gameBuild?: number
   readonly kvp?: KvpStore
+  readonly files?: FileSystem
 }
+
+/** The files of a resource, by their paths in it. */
+type ResourceFiles = NonNullable<ResourceDefinition['files']>
 
 /** A process with a clock the test controls and its console captured line by line. */
 export interface TestProcess {
@@ -29,11 +34,7 @@ export interface TestProcess {
    * fxmanifest.lua or __resource.lua, or if it has neither, its manifest
    * lists each of the files as a script of the process's side.
    */
-  add(
-    name: string,
-    files: ResourceDefinition['files'],
-    metadata?: ResourceDefinition['metadata'],
-  ): Resource
+  add(name: string, files: ResourceFiles, metadata?: ResourceDefinition['metadata']): Resource
   /** Moves the clock to `time` and ticks once. */
   tickAt(time: number): void
   /** The console lines written since the last call, as "[channel] text". */
@@ -41,11 +42,7 @@ export interface TestProcess {
 }
 
 /** Starts a resource with `files` and returns the lines written but those of every start. */
-export function startResource(
-  proc: TestProcess,
-  name: string,
-  files: ResourceDefinition['files'],
-): string[] {
+export function startResource(proc: TestProcess, name: string, files: ResourceFiles): string[] {
   proc.add(name, files).start()
   const starting = [
     `[citizen-scripting-core] Creating script environments for ${name}`,
@@ -92,6 +89,7 @@ export async function createProcess(options: ProcessOptions = {}): Promise<TestP
       ...(options.oneSync === undefined ? {} : { oneSync: options.oneSync }),
       ...(options.gameBuild === undefined ? {} : { gameBuild: options.gameBuild }),
       ...(options.kvp === undefined ? {} : { kvp: options.kvp }),
+      ...(options.files === undefined ? {} : { files: options.files }),
     }),
     time: 0,
     warnings,

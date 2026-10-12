@@ -1,5 +1,6 @@
 import { defineNative, type NativeDefinition, type Side } from '../../natives/index.ts'
 import type { NativeContext } from '../context.ts'
+import { parentOf } from '../files.ts'
 import { normalizePath } from '../glob.ts'
 import type { Resource } from '../resource.ts'
 import { checkArgument } from './events.ts'
@@ -69,10 +70,8 @@ export function resourceNatives(side: Side): NativeDefinition<NativeContext>[] {
         // Like FiveM, it checks the file name before the resource name.
         const name = checkArgument(fileName, 1)
         const resource = ctx.manager.getResource(checkArgument(resourceName, 0))
-        const data = resource === undefined ? undefined : loadFile(resource, name)
-        if (data === undefined) return null
         // Bytes keep the NULs a file may have, which a string result would end at.
-        return typeof data === 'string' ? new TextEncoder().encode(data) : data
+        return (resource === undefined ? undefined : loadFile(resource, name)) ?? null
       },
     ),
   ]
@@ -95,14 +94,11 @@ export function resourceNatives(side: Side): NativeDefinition<NativeContext>[] {
         if (resource === undefined) return false
         const name = checkArgument(fileName, 1)
         if (!mayWrite(ctx, resource, name)) return false
-        const target = saveTarget(ctx, resource, name)
-        if (target === 'nowhere') return false
-        const write = (bytes: Uint8Array) => {
-          if (target !== 'elsewhere') target.resource.writeFile(target.path, bytes)
-        }
+        const path = savePath(ctx, resource, name)
+        const { files } = ctx.manager
         // FiveM creates the file before it checks the data.
-        write(new Uint8Array(0))
-        write(bytesToSave(ctx, checkArgument(data, 2), dataLength))
+        if (path === undefined || !files.write(path, new Uint8Array(0))) return false
+        files.write(path, bytesToSave(ctx, checkArgument(data, 2), dataLength))
         return true
       },
     ),
@@ -142,9 +138,10 @@ export function resourceNatives(side: Side): NativeDefinition<NativeContext>[] {
  *
  * FiveLab resolves names as FiveM does on Windows, where backslashes also
  * separate directories and .. may follow a directory that does not exist,
- * but finds only the files of the exact name, as Linux does.
+ * and finds the files of the name as the files of the process do: those in
+ * memory only by their exact names, as Linux does.
  */
-function loadFile(resource: Resource, fileName: string): string | Uint8Array | undefined {
+function loadFile(resource: Resource, fileName: string): Uint8Array | undefined {
   if (resource.path === '') return undefined
   // Clients read files from where FiveM mounts what servers send.
   if (resource.manager.side === 'client' && !resource.path.startsWith('resources:/')) {
@@ -172,47 +169,25 @@ function mayWrite(ctx: NativeContext, resource: Resource, fileName: string): boo
   return false
 }
 
-/** Where SaveResourceFile writes: a file of a resource, somewhere FiveLab does not keep, or nowhere. */
-type SaveTarget = { readonly resource: Resource; readonly path: string } | 'elsewhere' | 'nowhere'
-
 /**
- * Where SaveResourceFile writes `fileName` of `resource`, as FiveM does:
- * nowhere for names of directories, nor in directories that do not exist,
- * as FiveM creates none. Names may lead out of the resource, into another
- * or out of all of them, and resolve as they do for LoadResourceFile.
+ * The path in the files of the process that SaveResourceFile writes
+ * `fileName` of `resource` at, which may lead out of the resource, into
+ * another or out of all of them, as it resolves for LoadResourceFile. There
+ * is none for names of directories, nor in directories that are not there,
+ * as FiveM creates none.
  */
-function saveTarget(ctx: NativeContext, resource: Resource, fileName: string): SaveTarget {
+function savePath(ctx: NativeContext, resource: Resource, fileName: string): string | undefined {
   const last = fileName.split(/[\\/]/).at(-1)
-  if (last === '' || last === '.' || last === '..') return 'nowhere'
+  if (last === '' || last === '.' || last === '..') return undefined
   const path = normalizePath(`${normalizePath(resource.path)}/${fileName}`)
-  let owner: Resource | undefined
-  let ownerRoot = ''
-  for (const other of ctx.manager.resources) {
-    const root = normalizePath(other.path)
-    // The directories of resources, and those they are in.
-    if (`${root}/`.startsWith(`${path}/`)) return 'nowhere'
-    if (path.startsWith(`${root}/`) && root.length > ownerRoot.length) {
-      owner = other
-      ownerRoot = root
-    }
-  }
-  if (owner === undefined) {
+  const directory = parentOf(path)
+  if (ctx.manager.files.list(directory) === undefined) {
     ctx.diagnose(
-      `SaveResourceFile wrote ${fileName} of ${resource.name} outside of any resource, which FiveLab does not keep.`,
+      `SaveResourceFile cannot write ${fileName} in ${resource.name}: there is no directory ${directory}, and FiveM creates none.`,
     )
-    return 'elsewhere'
+    return undefined
   }
-  const relative = path.slice(ownerRoot.length + 1)
-  if (owner.hasDirectory(relative)) return 'nowhere'
-  const slash = relative.lastIndexOf('/')
-  const directory = slash === -1 ? '' : relative.slice(0, slash)
-  if (!owner.hasDirectory(directory)) {
-    ctx.diagnose(
-      `SaveResourceFile cannot write ${fileName} in ${resource.name}: FiveM creates no directories, and ${owner.name} has no ${directory} directory with files in it.`,
-    )
-    return 'nowhere'
-  }
-  return { resource: owner, path: relative }
+  return path
 }
 
 /**

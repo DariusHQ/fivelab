@@ -1,6 +1,7 @@
 import { ScriptRuntime, type ScriptHost } from '../scripting/runtime.ts'
 import { NativeContext } from './context.ts'
-import { FileTree, glob, normalizePath } from './glob.ts'
+import { addFile, MemoryFileSystem, type FileSystem } from './files.ts'
+import { glob, normalizePath } from './glob.ts'
 import { Hook } from './hook.ts'
 import type { ResourceManager } from './manager.ts'
 import {
@@ -17,10 +18,12 @@ export type ResourceState = 'uninitialized' | 'stopped' | 'starting' | 'started'
 /** What a resource is made of. */
 export interface ResourceDefinition {
   /**
-   * The files of the resource by path, such as client.lua. On clients, the
-   * resource keeps only those that FiveM's server sends them.
+   * Files to give the resource, by their paths in it, such as client.lua,
+   * which FiveLab adds to the files of the process in the directory of the
+   * resource; on clients, only those that FiveM's server sends them. Without
+   * them, the resource has the files that are there.
    */
-  readonly files: Readonly<Record<string, string | Uint8Array>>
+  readonly files?: Readonly<Record<string, string | Uint8Array>>
   /**
    * The entries of its manifest in order, such as ['client_script', 'client.lua'].
    * Without them, the resource reads its fxmanifest.lua or __resource.lua.
@@ -71,8 +74,8 @@ export class Resource {
   readonly onStart = new Hook()
   /** Runs when the resource stops. */
   readonly onStop = new Hook()
-  readonly #files: Map<string, string | Uint8Array>
-  #tree: FileTree | undefined
+  /** The path of the resource's directory in the files of the process, normalized. */
+  readonly #root: string
   #state: ResourceState = 'stopped'
   #runtime: ScriptRuntime | null = null
   #context: NativeContext | null = null
@@ -91,10 +94,14 @@ export class Resource {
     this.name = name
     this.path =
       definition.path ?? (manager.side === 'client' ? `resources:/${name}/` : `resources/${name}`)
+    this.#root = normalizePath(this.path)
     this.categories = categoriesOf(this.path)
-    const files = new Map(Object.entries(definition.files))
+    // The resource reads the manifest of the files it is given before it adds them.
+    const given = definition.files === undefined ? undefined : this.#filesOf(definition.files)
+    const source = given ?? manager.files
     this.metadata =
-      definition.metadata ?? readManifest(manager.lua, this.path, (path) => files.get(path))
+      definition.metadata ??
+      readManifest(manager.lua, this.path, (path) => source.read(`${this.#root}/${path}`))
     for (const [[key, value, location], singular] of pluralEntries(this.metadata)) {
       const where =
         location === undefined
@@ -105,12 +112,7 @@ export class Resource {
         `${name}'s manifest adds ${key} \`${value}\`${where}, which FiveM does not read: ${key} drops its final s only for tables, so FiveM reads what ${singular} '...' and ${key} { '...' } add, but not ${key} '...'.`,
       )
     }
-    if (manager.side === 'client') {
-      const sent = clientFiles(new FileTree(this.path, files.keys()), this.metadata)
-      this.#files = new Map([...files].filter(([path]) => sent.has(path)))
-    } else {
-      this.#files = files
-    }
+    if (given !== undefined) this.#addFiles(given)
     // FiveM's event component connects to a resource's hooks before its scripting component does.
     manager.events.attach(this)
     this.onStart.connect(() => this.#createRuntime())
@@ -133,8 +135,7 @@ export class Resource {
 
   /** The files that the manifest entries with `key` name, as FiveM globs them: those of each entry in turn. */
   globEntries(key: string): string[] {
-    const tree = this.#fileTree()
-    return this.entries(key).flatMap((value) => glob(tree, value).files)
+    return this.entries(key).flatMap((value) => glob(this.manager.files, this.#root, value).files)
   }
 
   /**
@@ -143,11 +144,10 @@ export class Resource {
    * looks for them to warn about them.
    */
   missingEntries(key: string): MissingEntry[] {
-    const tree = this.#fileTree()
     return this.metadata
       .filter(([name]) => name === key)
       .flatMap(([, value, location]) => {
-        const { files, found } = glob(tree, value)
+        const { files, found } = glob(this.manager.files, this.#root, value)
         return files.length === 0 ? [{ value, location, found }] : []
       })
   }
@@ -160,23 +160,9 @@ export class Resource {
     ]
   }
 
-  file(path: string): string | Uint8Array | undefined {
-    return this.#files.get(path)
-  }
-
-  /** Writes the file at `path`, creating it or replacing what it had. */
-  writeFile(path: string, data: string | Uint8Array): void {
-    this.#files.set(path, data)
-    this.#tree = undefined
-  }
-
-  /**
-   * Whether the resource has a directory at `path`, or at its root for "".
-   * FiveLab knows only of the directories that have files.
-   */
-  hasDirectory(path: string): boolean {
-    const tree = this.#fileTree()
-    return tree.list(path === '' ? tree.root : `${tree.root}/${path}`) !== undefined
+  /** The bytes of the file at `path` in the resource, a normalized path, as the files of the process have it. */
+  file(path: string): Uint8Array | undefined {
+    return this.manager.files.read(`${this.#root}/${path}`)
   }
 
   /**
@@ -242,9 +228,34 @@ export class Resource {
     }
   }
 
-  #fileTree(): FileTree {
-    this.#tree ??= new FileTree(this.path, this.#files.keys())
-    return this.#tree
+  /** Files in the directory of the resource, as `files` names them. */
+  #filesOf(files: Readonly<Record<string, string | Uint8Array>>): MemoryFileSystem {
+    const own = new MemoryFileSystem()
+    for (const [path, data] of Object.entries(files)) {
+      addFile(own, normalizePath(`${this.#root}/${path}`), data)
+    }
+    return own
+  }
+
+  /**
+   * Adds the files the resource was given to the files of the process, in
+   * the directory of the resource, which it creates. Clients get only those
+   * that FiveM's server sends them.
+   */
+  #addFiles(given: FileSystem): void {
+    const { files, side } = this.manager
+    const sent = side === 'client' ? clientFiles(given, this.#root, this.metadata) : undefined
+    files.makeDirectory(this.#root)
+    const add = (directory: string) => {
+      for (const { name, directory: isDirectory } of given.list(directory) ?? []) {
+        const path = `${directory}/${name}`
+        if (isDirectory) add(path)
+        else if (sent === undefined || sent.has(path.slice(this.#root.length + 1))) {
+          addFile(files, path, given.read(path)!)
+        }
+      }
+    }
+    add(this.#root)
   }
 
   /** Ends a start that a hook failed, as FiveM does. */
@@ -311,7 +322,7 @@ export class Resource {
         .getResource(path.slice(1, slash))
         ?.file(normalizePath(path.slice(slash + 1)))
     }
-    return this.#files.get(normalizePath(path))
+    return this.file(normalizePath(path))
   }
 
   #destroyRuntime(): void {
@@ -389,16 +400,20 @@ function categoriesOf(path: string): string[] {
  * game streams, which have an extension that starts with .y, other than
  * .ytyp. Values with @ name files of other resources, which it leaves out.
  */
-function clientFiles(tree: FileTree, metadata: readonly MetadataEntry[]): Set<string> {
+function clientFiles(
+  files: FileSystem,
+  root: string,
+  metadata: readonly MetadataEntry[],
+): Set<string> {
   const isCfxV2 = metadata.some(([key]) => key === 'is_cfxv2')
-  const files = [isCfxV2 ? 'fxmanifest.lua' : '__resource.lua']
+  const sent = [isCfxV2 ? 'fxmanifest.lua' : '__resource.lua']
   for (const key of ['file', 'client_script', 'shared_script', 'map']) {
     for (const [name, value] of metadata) {
       if (name !== key) continue
-      for (const file of glob(tree, value).files) if (!file.startsWith('@')) files.push(file)
+      for (const file of glob(files, root, value).files) if (!file.startsWith('@')) sent.push(file)
     }
   }
-  return new Set(files.filter((file) => !isStreamed(file)))
+  return new Set(sent.filter((file) => !isStreamed(file)))
 }
 
 /**
