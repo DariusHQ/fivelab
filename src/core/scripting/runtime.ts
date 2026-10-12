@@ -11,6 +11,7 @@ import {
 } from '../lua/index.ts'
 import type { NativeCaller } from '../natives/invoker.ts'
 import eventsSource from './lua/events.lua?raw'
+import exportsSource from './lua/exports.lua?raw'
 import nativesSource from './lua/natives.lua?raw'
 import refsSource from './lua/refs.lua?raw'
 import schedulerSource from './lua/scheduler.lua?raw'
@@ -39,6 +40,12 @@ export interface ScriptHost {
   readonly resource: string
   /** The id FiveM gives the runtime, which tells it from other runtimes of the resource. */
   readonly instanceId: number
+  /**
+   * The globals that the resource's manifest exports on the runtime's side,
+   * in order: those its export entries name on clients, and its
+   * server_export entries on servers.
+   */
+  readonly exports: readonly string[]
   readonly natives: ScriptNatives
   /**
    * The time on the clock that threads wait by, in whole microseconds from
@@ -130,8 +137,8 @@ function callable(value: LuaValue): LuaRef | LuaHostFunction {
 /**
  * The Lua runtime of one resource on one side, set up like FiveM's: CfxLua
  * with FiveM's libraries and require, the Citizen table with natives that load
- * on first use, the promise library, the Citizen scheduler with print, and
- * events.
+ * on first use, the promise library, the Citizen scheduler with print,
+ * events, function references and exports.
  */
 export class ScriptRuntime implements NativeCaller {
   readonly state: LuaState
@@ -399,6 +406,10 @@ export class ScriptRuntime implements NativeCaller {
       checked,
       'server',
       !host.natives.client,
+      'resource',
+      host.resource,
+      'manifestExports',
+      state.hostFunction(() => host.exports),
       'formatStackTrace',
       state.hostFunction(() => host.formatStackTrace()),
       'clearBoundaryStart',
@@ -414,6 +425,7 @@ export class ScriptRuntime implements NativeCaller {
     state.run(schedulerSource, '@fivelab:/scheduler.lua', hostTable, fivelab)
     state.run(eventsSource, '@fivelab:/events.lua', hostTable, fivelab)
     state.run(refsSource, '@fivelab:/refs.lua', hostTable, fivelab)
+    state.run(exportsSource, '@fivelab:/exports.lua', hostTable)
     const [collect, resume, runFile, flush, walkStack, callRef, duplicateRef, deleteRef] =
       state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
     release(hostTable, fivelab)

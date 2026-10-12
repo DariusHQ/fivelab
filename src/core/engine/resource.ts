@@ -303,6 +303,7 @@ export class Resource {
     return {
       resource: name,
       instanceId: manager.instanceId(),
+      exports: this.entries(manager.side === 'server' ? 'server_export' : 'export'),
       natives: {
         client: manager.side === 'client',
         load: (native) => manager.nativeWrapper(native),
