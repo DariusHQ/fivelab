@@ -12,6 +12,7 @@ export {
   LuaRef,
   LuaState,
   MAX_NESTED_CALLS,
+  type CallOptions,
   type HostFunction,
   type HostResult,
   type LuaRefType,

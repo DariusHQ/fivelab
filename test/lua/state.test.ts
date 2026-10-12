@@ -143,6 +143,18 @@ describe('LuaState', () => {
     expect(() => lua.call(add as LuaRef)).toThrow('released')
   })
 
+  it('returns strings as their bytes when asked to', async () => {
+    const lua = (await createRuntime()).newState()
+    const [fn] = lua.run(`return function(...) return '\\xff\\0a', 1, ... end`, '=test')
+    expect(lua.callWith({ bytes: true }, fn as LuaRef, 'b', null)).toEqual([
+      new Uint8Array([0xff, 0, 0x61]),
+      1,
+      new Uint8Array([0x62]),
+      null,
+    ])
+    expect(lua.callWith({}, fn as LuaRef)).toEqual(['�\0a', 1])
+  })
+
   it('rejects references from another state', async () => {
     const runtime = await createRuntime()
     const a = runtime.newState()

@@ -60,6 +60,17 @@ export interface WatchdogOptions {
   readonly interval?: number
 }
 
+export interface CallOptions {
+  /**
+   * Call on the main thread even inside a host call from a coroutine, as C
+   * code calls functions on a state it kept rather than on the thread that
+   * called it.
+   */
+  readonly onMain?: boolean
+  /** Return strings as their bytes, keeping binary data such as msgpack. */
+  readonly bytes?: boolean
+}
+
 /**
  * Calls from JavaScript into Lua and back nest on one native stack, which
  * overflows long before Lua's own C stack limit when several states call each
@@ -295,30 +306,35 @@ export class LuaState {
 
   /** Calls a Lua value in protected mode and returns all of its results. */
   call(fn: LuaRef | LuaHostFunction, ...args: LuaValue[]): LuaValue[] {
-    return this.#enter((L) => this.#call(L, fn, args))
+    return this.callWith({}, fn, ...args)
   }
 
-  /**
-   * Calls a Lua value as call does, but on the main thread even inside a
-   * host call from a coroutine, as C code calls functions on a state it
-   * kept rather than on the thread that called it.
-   */
+  /** Calls a Lua value as call does, but on the main thread (see CallOptions). */
   callOnMain(fn: LuaRef | LuaHostFunction, ...args: LuaValue[]): LuaValue[] {
-    return this.#enter((L) => this.#call(L, fn, args), this.L)
+    return this.callWith({ onMain: true }, fn, ...args)
   }
 
-  #call(L: Ptr, fn: LuaRef | LuaHostFunction, args: readonly LuaValue[]): LuaValue[] {
-    const ex = this.runtime.exports
-    const base = ex.fl_gettop(L)
-    this.push(L, fn)
-    for (const arg of args) this.push(L, arg)
-    const status = ex.fl_pcall(L, args.length, LUA_MULTRET)
-    if (status !== LUA_OK) throw this.#popError(L, status, base, true)
-    const top = ex.fl_gettop(L)
-    const results: LuaValue[] = []
-    for (let i = base + 1; i <= top; i++) results.push(this.read(L, i))
-    ex.fl_settop(L, base)
-    return results
+  /** Calls a Lua value as call does, in the ways `options` says. */
+  callWith(options: CallOptions, fn: LuaRef | LuaHostFunction, ...args: LuaValue[]): LuaValue[] {
+    return this.#enter(
+      (L) => {
+        const ex = this.runtime.exports
+        const base = ex.fl_gettop(L)
+        this.push(L, fn)
+        for (const arg of args) this.push(L, arg)
+        const status = ex.fl_pcall(L, args.length, LUA_MULTRET)
+        if (status !== LUA_OK) throw this.#popError(L, status, base, true)
+        const top = ex.fl_gettop(L)
+        const results: LuaValue[] = []
+        for (let i = base + 1; i <= top; i++) {
+          const bytes = options.bytes === true && ex.fl_type(L, i) === LUA_TSTRING
+          results.push(bytes ? this.readBytes(L, i) : this.read(L, i))
+        }
+        ex.fl_settop(L, base)
+        return results
+      },
+      options.onMain === true ? this.L : undefined,
+    )
   }
 
   /** Reads a global without invoking metamethods. */
