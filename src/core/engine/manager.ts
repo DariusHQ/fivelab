@@ -1,3 +1,4 @@
+import { colored } from '../console/printer.ts'
 import { LuaError, type LuaRuntime } from '../lua/index.ts'
 import {
   catalogNatives,
@@ -413,11 +414,4 @@ function parseRef(ref: string): { resource: string; instance: number; index: num
     instance: atoi(length < 0 ? ref.slice(first + 1) : ref.slice(first + 1, first + 1 + length)),
     index: atoi(ref.slice(second + 1)),
   }
-}
-
-/** Puts `prefix` before `text`, and ends its color before the line breaks at its end, as FiveM does. */
-function colored(prefix: string, text: string): string {
-  const message = prefix + text
-  const end = message.replace(/\n+$/, '').length
-  return `${message.slice(0, end)}^7${message.slice(end)}`
 }
