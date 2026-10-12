@@ -2,7 +2,7 @@ import { defineNative, type NativeDefinition } from '../../natives/index.ts'
 import type { NativeContext } from '../context.ts'
 
 /** Says that a native was given NULL for a reference, which FiveM makes a C++ string of all the same. */
-function nullReference(ctx: NativeContext, native: string, instead: string): void {
+export function nullReference(ctx: NativeContext, native: string, instead: string): void {
   ctx.diagnose(
     `${native} was given nil for the reference, which FiveM reads as a string all the same: its behavior is undefined, and it can crash. FiveLab ${instead}.`,
   )

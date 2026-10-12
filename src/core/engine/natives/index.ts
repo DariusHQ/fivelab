@@ -14,7 +14,7 @@ export function engineNatives(side: Side): NativeDefinition<NativeContext>[] {
     ...eventNatives(),
     ...refNatives(),
     ...resourceNatives(side),
-    ...consoleNatives(),
+    ...consoleNatives(side),
     ...convarNatives(side),
   ]
 }

@@ -1,23 +1,27 @@
 import { EVERYONE, type CommandInfo } from '../../console/index.ts'
 import { atoi } from '../../libc.ts'
-import { defineNative, type NativeDefinition } from '../../natives/index.ts'
+import { defineNative, type NativeDefinition, type Side } from '../../natives/index.ts'
 import type { NativeContext } from '../context.ts'
 import { INT32_MAX } from '../hook.ts'
 import { pack } from '../msgpack.ts'
 import { checkArgument } from './events.ts'
+import { nullReference } from './refs.ts'
 
 /** Commands as FiveM gives scripts the commands of the console: as maps of their name, resource and arity. */
 function packCommands(commands: readonly CommandInfo[]): Uint8Array {
   return pack(commands.map(({ name, resource, arity }) => ({ name, resource, arity })))
 }
 
-/** Natives of the console of the process: its commands and who may access what. */
-export function consoleNatives(): NativeDefinition<NativeContext>[] {
+/**
+ * Natives of the console of the process: its commands, who may access
+ * what, and on servers, what it printed.
+ */
+export function consoleNatives(side: Side): NativeDefinition<NativeContext>[] {
   // The functions that the commands scripts registered call, by the names
   // of the commands as written, for every runtime of the process: a script
   // that registers a command again gives its handler the new function.
   const functions = new Map<string, string>()
-  return [
+  const natives = [
     defineNative(
       { name: 'EXECUTE_COMMAND', result: 'void', params: ['bytes commandString'] },
       (ctx: NativeContext, commandString) => {
@@ -89,6 +93,28 @@ export function consoleNatives(): NativeDefinition<NativeContext>[] {
       (ctx: NativeContext, principal, object) => {
         const who = checkArgument(principal, 0)
         return ctx.manager.security.checkPrincipal(who, checkArgument(object, 1))
+      },
+    ),
+  ]
+  if (side === 'client') return natives
+  return [
+    ...natives,
+    // Servers have a console buffer.
+    defineNative(
+      { name: 'GET_CONSOLE_BUFFER', result: 'char*', params: [] },
+      (ctx: NativeContext) => ctx.manager.consoleBuffer!.text,
+    ),
+    defineNative(
+      { name: 'REGISTER_CONSOLE_LISTENER', result: 'void', params: ['func listener'] },
+      (ctx: NativeContext, listener) => {
+        if (listener === null) {
+          nullReference(ctx, 'RegisterConsoleListener', 'adds no listener')
+          return
+        }
+        const { manager, resource } = ctx
+        const buffer = manager.consoleBuffer!
+        buffer.listen(resource.name, listener)
+        resource.onStop.connect(() => buffer.forget(resource.name))
       },
     ),
   ]

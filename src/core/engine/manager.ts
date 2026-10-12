@@ -17,6 +17,7 @@ import {
   type Side,
 } from '../natives/index.ts'
 import { CLOCK_START, type ScriptRuntime, type StackBoundaries } from '../scripting/runtime.ts'
+import { ConsoleBuffer } from './buffer.ts'
 import { Constraints, DEFAULT_GAME_BUILD, FIVEM_BUILD, parseGameBuild } from './constraints.ts'
 import type { NativeContext } from './context.ts'
 import { Dependencies } from './dependencies.ts'
@@ -101,6 +102,8 @@ export class ResourceManager {
   readonly console: ConsoleContext
   /** On servers, which resources may read the console variables that are restricted to some. */
   readonly convarPermissions: ConvarPermissions | undefined
+  /** On servers, what they keep of what their console prints for scripts. */
+  readonly consoleBuffer: ConsoleBuffer | undefined
   readonly natives = new NativeRegistry<NativeContext>()
   readonly events = new EventManager(this)
   /** What dependencies such as /server:5181 test, which only servers enforce. */
@@ -132,6 +135,13 @@ export class ResourceManager {
     this.#time = options.time
     this.printer = new Printer((channel, text) => this.output.write(channel, text))
     const server = this.side === 'server'
+    if (server) {
+      const buffer = new ConsoleBuffer(this)
+      this.printer.listen((channel, text) => buffer.add(channel, text))
+      this.consoleBuffer = buffer
+    } else {
+      this.consoleBuffer = undefined
+    }
     const consoleOptions = {
       security: this.security,
       output: this.printer,
