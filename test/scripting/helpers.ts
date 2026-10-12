@@ -1,5 +1,6 @@
 import {
   catalogNatives,
+  defineNative,
   NativeRegistry,
   nativeWrapper,
   type NativeDefinition,
@@ -72,10 +73,23 @@ export function scriptNatives(
   }
 }
 
+/**
+ * Natives that FiveLab's scripts call before any resource script runs, as
+ * FiveM's do: on servers, the handler of HTTP responses registers the
+ * resource for their event. The test's natives can replace them.
+ */
+const SETUP_NATIVES: readonly NativeDefinition<ScriptRuntime>[] = [
+  defineNative(
+    { name: 'REGISTER_RESOURCE_AS_EVENT_HANDLER', result: 'void', params: ['char* eventName'] },
+    () => {},
+  ),
+]
+
 export async function createResource(options: ResourceOptions = {}): Promise<TestResource> {
   const { name = 'test', client = false } = options
   const natives = [
     ...(options.catalog ? catalogNatives<ScriptRuntime>(client ? 'client' : 'server') : []),
+    ...SETUP_NATIVES,
     ...(options.natives ?? []),
   ]
   const runtime = await createRuntime()

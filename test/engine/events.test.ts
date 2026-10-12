@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
+import type { NativeContext } from '../../src/core/engine/index.ts'
+import { pack } from '../../src/core/engine/msgpack.ts'
+import {
+  defineNative,
+  type NativeDefinition,
+  type ParamSpec,
+} from '../../src/core/natives/index.ts'
 import { createProcess, type TestProcess } from './helpers.ts'
 
 /** msgpack bytes: an array holding the integer 5, nil, and a byte no msgpack value starts with. */
@@ -15,6 +22,23 @@ function start(proc: TestProcess, name: string, source: string): string[] {
     `[resources] Started resource ${name}`,
   ]
   return proc.take().filter((line) => !starting.includes(line))
+}
+
+/** Natives that record the values they are given, bytes as lists of numbers. */
+function recorder(names: readonly [string, readonly ParamSpec[]][]): {
+  readonly calls: string[]
+  readonly natives: NativeDefinition<NativeContext>[]
+} {
+  const calls: string[] = []
+  const natives = names.map(([name, params]) =>
+    defineNative({ name, result: 'void', params }, (_ctx: NativeContext, ...values: unknown[]) => {
+      const shown = values.map((value) =>
+        value instanceof Uint8Array ? `[${Array.from(value).join(',')}]` : String(value),
+      )
+      calls.push(`${name} ${shown.join(' ')}`)
+    }),
+  )
+  return { calls, natives }
 }
 
 describe('TriggerEvent', () => {
@@ -79,7 +103,7 @@ print(TriggerEvent('outer'), WasEventCanceled())`,
 
 describe('event handlers', () => {
   it('run in the order pairs gives their keys, as in FiveM, and can be removed', async () => {
-    const proc = await createProcess()
+    const proc = await createProcess({ side: 'client' })
     expect(
       start(
         proc,
@@ -103,6 +127,11 @@ print(pcall(RemoveEventHandler, {}))`,
       '[script:a] 11\tx',
       '[script:a] false\tInvalid event data passed to RemoveEventHandler()',
     ])
+  })
+
+  it('come after the handler of HTTP responses on servers, as in FiveM', async () => {
+    const proc = await createProcess()
+    expect(start(proc, 'a', `print(AddEventHandler('x', print).key)`)).toEqual(['[script:a] 12'])
   })
 
   it('may be tables with __call, and are skipped when they are not functions', async () => {
@@ -318,5 +347,137 @@ end)`,
     expect(proc.take()).toEqual(['[script:a] a triggers', '[script:b] b handles'])
     proc.tickAt(1)
     expect(proc.take()).toEqual(['[script:b] b resumes'])
+  })
+})
+
+describe('helpers of each side', () => {
+  it('trigger events of clients on servers, with their arguments packed', async () => {
+    const { calls, natives } = recorder([
+      [
+        'TRIGGER_CLIENT_EVENT_INTERNAL',
+        ['char* eventName', 'char* eventTarget', 'buffer eventPayload', 'int payloadLength'],
+      ],
+      [
+        'TRIGGER_LATENT_CLIENT_EVENT_INTERNAL',
+        [
+          'char* eventName',
+          'char* eventTarget',
+          'buffer eventPayload',
+          'int payloadLength',
+          'int bps',
+        ],
+      ],
+    ])
+    const proc = await createProcess({ natives })
+    start(
+      proc,
+      'a',
+      `TriggerClientEvent('x', 5, 1, 'a')
+TriggerLatentClientEvent('y', -1, '100', true)`,
+    )
+    expect(calls).toEqual([
+      'TRIGGER_CLIENT_EVENT_INTERNAL x 5 [146,1,161,97] 4',
+      'TRIGGER_LATENT_CLIENT_EVENT_INTERNAL y -1 [145,195] 2 100',
+    ])
+  })
+
+  it('trigger events of servers on clients, with their arguments packed', async () => {
+    const { calls, natives } = recorder([
+      [
+        'TRIGGER_SERVER_EVENT_INTERNAL',
+        ['char* eventName', 'buffer eventPayload', 'int payloadLength'],
+      ],
+      [
+        'TRIGGER_LATENT_SERVER_EVENT_INTERNAL',
+        ['char* eventName', 'buffer eventPayload', 'int payloadLength', 'int bps'],
+      ],
+    ])
+    const proc = await createProcess({ side: 'client', natives })
+    expect(
+      start(
+        proc,
+        'a',
+        `TriggerServerEvent('x', 1, 'a')
+TriggerLatentServerEvent('y', '50', true)
+print(TriggerClientEvent, RconPrint, PerformHttpRequest)`,
+      ),
+    ).toEqual(['[script:a] nil\tnil\tnil'])
+    expect(calls).toEqual([
+      'TRIGGER_SERVER_EVENT_INTERNAL x [146,1,161,97] 4',
+      'TRIGGER_LATENT_SERVER_EVENT_INTERNAL y [145,195] 2 50',
+    ])
+  })
+
+  it('include those of the console and of players on servers', async () => {
+    const proc = await createProcess()
+    expect(
+      start(
+        proc,
+        'a',
+        `RconPrint('printed\\n')
+print(RconLog('x'), RegisterServerEvent == RegisterNetEvent, rawequal(GetPlayerEP, GetPlayerEndpoint))
+print(TriggerServerEvent, type(GetPlayers), type(GetPlayerIdentifiers), type(GetPlayerTokens))`,
+      ),
+    ).toEqual([
+      '[script:a] printed',
+      '[script:a] nil\ttrue\ttrue',
+      '[script:a] nil\tfunction\tfunction\tfunction',
+    ])
+  })
+
+  it('give HTTP responses on servers to the callbacks of their requests, once', async () => {
+    const ids = [7, -1]
+    const requests: Uint8Array[] = []
+    const http = defineNative(
+      { name: 'PERFORM_HTTP_REQUEST_INTERNAL_EX', result: 'int', params: ['object requestData'] },
+      (_ctx: NativeContext, requestData) => {
+        requests.push(requestData!)
+        return ids.shift()!
+      },
+    )
+    const proc = await createProcess({ natives: [http] })
+    expect(
+      start(
+        proc,
+        'a',
+        `PerformHttpRequest('http://a', function(status, body, headers, err)
+    print('response', status, body, headers.h, err)
+end)
+PerformHttpRequest('http://b', function(status, body, headers, err)
+    print('failed', status, body, next(headers), err)
+end, 'POST', 'sent', { k = 'v' }, { followLocation = false })`,
+      ),
+    ).toEqual(['[script:a] failed\t0\tnil\tnil\tFailure handling HTTP request'])
+    const state = proc.manager.getResource('a')!.runtime!.state
+    const read = `local t = msgpack.unpack(...)
+return t.url, t.method, t.data, t.headers.k or 'none', t.followLocation`
+    expect(requests.map((request) => state.run(read, '=read', request))).toEqual([
+      ['http://a', 'GET', '', 'none', true],
+      ['http://b', 'POST', 'sent', 'v', false],
+    ])
+    const response = pack([7, 200, 'ok', { h: 'v' }, null])
+    proc.manager.events.trigger('__cfx_internal:httpResponse', response)
+    proc.manager.events.trigger('__cfx_internal:httpResponse', response)
+    expect(proc.take()).toEqual(['[script:a] response\t200\tok\tv\tnil'])
+  })
+
+  it('await HTTP responses on servers in PerformHttpRequestAwait', async () => {
+    const http = defineNative(
+      { name: 'PERFORM_HTTP_REQUEST_INTERNAL_EX', result: 'int', params: ['object requestData'] },
+      () => 9,
+    )
+    const proc = await createProcess({ natives: [http] })
+    start(
+      proc,
+      'a',
+      `CreateThread(function()
+    local status, body, headers, err = PerformHttpRequestAwait('http://a')
+    print('awaited', status, body, type(headers), err)
+end)`,
+    )
+    proc.tickAt(0)
+    expect(proc.take()).toEqual([])
+    proc.manager.events.trigger('__cfx_internal:httpResponse', pack([9, 404, '', [], 'missing']))
+    expect(proc.take()).toEqual(['[script:a] awaited\t404\t\ttable\tmissing'])
   })
 })

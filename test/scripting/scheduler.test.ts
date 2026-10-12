@@ -507,18 +507,24 @@ print(debug.getinfo(print, 'S').what, 'nul\\0inside')`)
   })
 
   it('Citizen.Trace writes text as it is, up to a NUL', async () => {
-    const res = await createResource()
-    res.run(`Citizen.Trace('no newline ')
+    // pcall gives no name, so errors name Citizen.Trace by the global that
+    // holds it: none on clients, and RconPrint on servers.
+    for (const [client, global] of [
+      [true, '?'],
+      [false, 'RconPrint'],
+    ] as const) {
+      const res = await createResource({ client })
+      res.run(`Citizen.Trace('no newline ')
 Citizen.Trace(42)
 Citizen.Trace('cut\\0off')
 print(pcall(Citizen.Trace))
 print(pcall(function() Citizen.Trace({}) end))`)
-    expect(res.take()).toBe(
-      'no newline 42cut' +
-        // pcall gives no name, and Citizen.Trace is no global.
-        "false\tbad argument #1 to '?' (string expected, got no value)\n" +
-        "false\t@test/client.lua:5: bad argument #1 to 'Trace' (string expected, got table)\n",
-    )
+      expect(res.take()).toBe(
+        'no newline 42cut' +
+          `false\tbad argument #1 to '${global}' (string expected, got no value)\n` +
+          "false\t@test/client.lua:5: bad argument #1 to 'Trace' (string expected, got table)\n",
+      )
+    }
   })
 
   it('warn reports to the host', async () => {

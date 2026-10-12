@@ -10,7 +10,11 @@
     only if RegisterNetEvent made it safe for net. While handlers start,
     `source` is the id of the player the event came from.
 
-    This script also sets up msgpack and json as FiveM's scheduler does.
+    This script also sets up msgpack and json as FiveM's scheduler does, and
+    defines the helpers it defines for each side: those that trigger events
+    of the other side, and on servers those for players and HTTP requests,
+    whose responses come as an event that the script handles before any
+    resource script runs, as in FiveM.
 
     Loaded by the runtime after the scheduler, with its host functions and
     the table the FiveLab scripts share.
@@ -19,7 +23,7 @@
 local host, fivelab = ...
 
 local type, pairs, tonumber, getmetatable = type, pairs, tonumber, getmetatable
-local table_unpack = table.unpack
+local table_unpack, table_insert = table.unpack, table.insert
 local debug_getinfo = debug.getinfo
 local msgpack_unpack, msgpack_pack_args = msgpack.unpack, msgpack.pack_args
 
@@ -86,10 +90,6 @@ function RegisterNetEvent(eventName, cb)
     end
 end
 
-if isServer then
-    RegisterServerEvent = RegisterNetEvent
-end
-
 -- Like FiveM's, it calls out of the runtime from a boundary, so that stack
 -- traces of the runtimes the event reaches show where it was triggered.
 function TriggerEvent(eventName, ...)
@@ -97,6 +97,105 @@ function TriggerEvent(eventName, ...)
     return runWithBoundaryEnd(function()
         return TriggerEventInternal(eventName, payload, payload:len())
     end)
+end
+
+--[[ Helpers of each side ]]
+
+-- Errors and stack traces name values by the variables that hold them, so
+-- those that scripts can see have the names FiveM gives them.
+if isServer then
+    function TriggerClientEvent(eventName, playerId, ...)
+        local payload = msgpack_pack_args(...)
+        return TriggerClientEventInternal(eventName, playerId, payload, payload:len())
+    end
+
+    function TriggerLatentClientEvent(eventName, playerId, bps, ...)
+        local payload = msgpack_pack_args(...)
+        return TriggerLatentClientEventInternal(eventName, playerId, payload, payload:len(), tonumber(bps))
+    end
+
+    RegisterServerEvent = RegisterNetEvent
+    RconPrint = Citizen.Trace
+    -- FiveM takes the native when its scheduler loads.
+    GetPlayerEP = GetPlayerEndpoint
+    RconLog = function() end
+
+    function GetPlayerIdentifiers(player)
+        local numIds = GetNumPlayerIdentifiers(player)
+        local t = {}
+        for i = 0, numIds - 1 do
+            table_insert(t, GetPlayerIdentifier(player, i))
+        end
+        return t
+    end
+
+    function GetPlayerTokens(player)
+        local numIds = GetNumPlayerTokens(player)
+        local t = {}
+        for i = 0, numIds - 1 do
+            table_insert(t, GetPlayerToken(player, i))
+        end
+        return t
+    end
+
+    function GetPlayers()
+        local num = GetNumPlayerIndices()
+        local t = {}
+        for i = 0, num - 1 do
+            table_insert(t, GetPlayerFromIndex(i))
+        end
+        return t
+    end
+
+    -- The callbacks of HTTP requests, by the token of the request, until the
+    -- response comes.
+    local httpDispatch = {}
+
+    AddEventHandler('__cfx_internal:httpResponse', function(token, status, body, headers, errorData)
+        if httpDispatch[token] then
+            local userCallback = httpDispatch[token]
+            httpDispatch[token] = nil
+            userCallback(status, body, headers, errorData)
+        end
+    end)
+
+    function PerformHttpRequest(url, cb, method, data, headers, options)
+        local followLocation = true
+        if options and options.followLocation ~= nil then
+            followLocation = options.followLocation
+        end
+        local id = PerformHttpRequestInternalEx({
+            url = url,
+            method = method or 'GET',
+            data = data or '',
+            headers = headers or {},
+            followLocation = followLocation,
+        })
+        if id ~= -1 then
+            httpDispatch[id] = cb
+        else
+            cb(0, nil, {}, 'Failure handling HTTP request')
+        end
+    end
+
+    function PerformHttpRequestAwait(url, method, data, headers, options)
+        local p = promise.new()
+        PerformHttpRequest(url, function(...)
+            p:resolve({ ... })
+        end, method, data, headers, options)
+        Citizen.Await(p)
+        return table.unpack(p.value)
+    end
+else
+    function TriggerServerEvent(eventName, ...)
+        local payload = msgpack_pack_args(...)
+        return TriggerServerEventInternal(eventName, payload, payload:len())
+    end
+
+    function TriggerLatentServerEvent(eventName, bps, ...)
+        local payload = msgpack_pack_args(...)
+        return TriggerLatentServerEventInternal(eventName, payload, payload:len(), tonumber(bps))
+    end
 end
 
 --[[ The event routine ]]

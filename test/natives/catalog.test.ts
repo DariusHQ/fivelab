@@ -112,12 +112,14 @@ end
 print(table.concat(defined, ' '))
 print(table.concat(returned, ' '))`)
       const [defined, returned] = res.take().split('\n')
-      // The script runtime defines Wait instead of the native WAIT, as FiveM's does.
-      const replaced = side === 'client' ? ['Wait'] : []
-      expect(defined).toBe(replaced.join(' '))
+      // The script runtime defines Wait instead of the native WAIT, as FiveM's
+      // does, and on servers loads the natives its helpers call as it loads.
+      const predefined =
+        side === 'client' ? ['Wait'] : ['GetPlayerEndpoint', 'RegisterResourceAsEventHandler']
+      expect(defined).toBe(predefined.join(' '))
       expect(returned!.split(' ')).toEqual(
         names
-          .filter((name) => !replaced.includes(name))
+          .filter((name) => !predefined.includes(name))
           .map((name) => `${name}=${counts.get(name)}`),
       )
     }
