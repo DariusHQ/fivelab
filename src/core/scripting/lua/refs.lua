@@ -1,6 +1,7 @@
 --[[
-    FiveLab function references: Citizen.GetFunctionReference, and the
-    routines the runtime runs for the references of its functions.
+    FiveLab function references: Citizen.GetFunctionReference, the routines
+    the runtime runs for the references of its functions, and the proxies
+    that stand for the functions of other runtimes.
 
     A reference names a function of a runtime, so that other runtimes can
     call it. Citizen.CanonicalizeRef formats it from the reference's index,
@@ -11,13 +12,17 @@
     it takes one away, and once none is left, or when it had none, the
     runtime forgets the function.
 
+    msgpack packs functions as their references, which unpack as proxies:
+    tables that hold the reference until they are collected, as in FiveM.
+
     Loaded by the runtime after the events script, with the table the
     FiveLab scripts share.
 ]]
 
 local fivelab = ...
 
-local type, rawget = type, rawget
+local type, error, rawget, setmetatable = type, error, rawget, setmetatable
+local msgpack = msgpack
 
 local Citizen = Citizen
 
@@ -45,6 +50,54 @@ function Citizen.GetFunctionReference(fn)
     end
     return nil
 end
+
+--[[ Proxies ]]
+
+-- msgpack packs functions in extension 10. FiveM's C++ code packs its own
+-- functions in extension 11, which unpacks the same.
+local EXT_FUNCREF, EXT_LOCALFUNCREF = 10, 11
+
+msgpack.extend_clear(EXT_FUNCREF, EXT_LOCALFUNCREF)
+
+local proxy
+
+-- Packs a function, or a proxy, as a reference to it.
+local function packReference(value, ext)
+    local ref = Citizen.GetFunctionReference(value)
+    if ref then
+        return ref
+    end
+    error(('Unknown funcref type: %d %s'):format(ext, type(value)), 2)
+end
+
+-- Unpacks a reference as a proxy, which holds it.
+local function unpackReference(ref)
+    DuplicateFunctionReference(ref)
+    return setmetatable({ __cfx_functionReference = ref }, proxy)
+end
+
+proxy = msgpack.extend({
+    __ext = EXT_FUNCREF,
+    __pack = packReference,
+    __unpack = unpackReference,
+    __gc = function(self)
+        DeleteFunctionReference(rawget(self, '__cfx_functionReference'))
+    end,
+    __index = function()
+        error('Cannot index a funcref', 2)
+    end,
+    __newindex = function()
+        error('Cannot set indexes on a funcref', 2)
+    end,
+})
+
+msgpack.extend({
+    __ext = EXT_LOCALFUNCREF,
+    __pack = packReference,
+    __unpack = unpackReference,
+})
+
+msgpack.settype('function', EXT_FUNCREF)
 
 --[[ Routines the runtime runs ]]
 

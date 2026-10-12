@@ -112,3 +112,73 @@ DeleteFunctionReference(nil)`,
     ])
   })
 })
+
+describe('proxies', () => {
+  it('are what msgpack packs functions as, by reference in extension 10', async () => {
+    const proc = await createProcess()
+    expect(
+      start(
+        proc,
+        'a',
+        `print(msgpack.pack(print, { f = print }) == '\\xc7\\x06\\x0aa:41:0\\x81\\xa1f\\xc7\\x06\\x0aa:41:1')
+local proxy = msgpack.unpack('\\xc7\\x06\\x0aa:41:0')
+print(type(proxy), rawget(proxy, '__cfx_functionReference'))
+print(rawget(msgpack.unpack('\\xc7\\x06\\x0bx:41:0'), '__cfx_functionReference'))`,
+      ),
+    ).toEqual(['[script:a] true', '[script:a] table\ta:41:0', '[script:a] x:41:0'])
+  })
+
+  it('hold the references they unpack until they are collected', async () => {
+    const proc = await createProcess()
+    expect(
+      start(
+        proc,
+        'a',
+        `local proxy = msgpack.unpack(msgpack.pack(function() end))
+print(DuplicateFunctionReference('a:41:0'))
+DeleteFunctionReference('a:41:0')
+print(DuplicateFunctionReference('a:41:0'))
+DeleteFunctionReference('a:41:0')
+proxy = nil
+collectgarbage()
+print(DuplicateFunctionReference('a:41:0'))`,
+      ),
+    ).toEqual(['[script:a] a:41:0', '[script:a] a:41:0', '[script:a] a:41:-1'])
+  })
+
+  it('cannot be indexed', async () => {
+    const proc = await createProcess()
+    expect(
+      start(
+        proc,
+        'a',
+        `local proxy = msgpack.unpack(msgpack.pack(print))
+print(pcall(function() return proxy.x end))
+print(pcall(function() proxy.x = 1 end))`,
+      ),
+    ).toEqual([
+      '[script:a] false\t@a/main.lua:2: Cannot index a funcref',
+      '[script:a] false\t@a/main.lua:3: Cannot set indexes on a funcref',
+    ])
+  })
+
+  it('pack as references of their own, to a function that calls them', async () => {
+    const proc = await createProcess()
+    expect(
+      start(
+        proc,
+        'a',
+        `local proxy = msgpack.unpack(msgpack.pack(print))
+print(rawget(msgpack.unpack(msgpack.pack(proxy)), '__cfx_functionReference'))
+local unreferenced = setmetatable({}, getmetatable(proxy))
+print(pcall(msgpack.pack, unreferenced))
+unreferenced = nil
+collectgarbage()`,
+      ),
+    ).toEqual(['[script:a] a:41:1', '[script:a] false\tUnknown funcref type: 10 table'])
+    // The proxy that names no reference deletes nil once it is collected.
+    expect(proc.diagnostics).toEqual([
+      'a: DeleteFunctionReference was given nil for the reference, which FiveM reads as a string all the same: its behavior is undefined, and it can crash. FiveLab does nothing.',
+    ])
+  })
+})
