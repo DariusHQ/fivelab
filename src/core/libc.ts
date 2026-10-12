@@ -21,6 +21,20 @@ export function strtoull(text: string): bigint {
   return parts[1] === '-' ? BigInt.asUintN(64, -value) : value
 }
 
+/**
+ * C++'s std::stoull in base 10: the number at the start of `text`, after
+ * whitespace and an optional sign, or undefined, where std::stoull throws,
+ * if there is none or it does not fit in 64 bits. A minus sign negates the
+ * result.
+ */
+export function stoull(text: string): bigint | undefined {
+  const parts = /^[\t-\r ]*([+-]?)(\d+)/.exec(text)
+  if (parts === null) return undefined
+  const value = BigInt(parts[2]!)
+  if (value > MAX_UINT64) return undefined
+  return parts[1] === '-' ? BigInt.asUintN(64, -value) : value
+}
+
 const MAX_UINT64 = 2n ** 64n - 1n
 
 /** Orders strings as C++ orders their UTF-8 bytes, which is by code point. */
