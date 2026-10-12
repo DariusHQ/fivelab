@@ -1,4 +1,11 @@
-import { colored } from '../console/printer.ts'
+import {
+  addAccessCommands,
+  addPrinterCommands,
+  ConsoleContext,
+  EVERYONE,
+  Printer,
+  Security,
+} from '../console/index.ts'
 import { LuaError, type LuaRuntime } from '../lua/index.ts'
 import {
   catalogNatives,
@@ -77,6 +84,19 @@ export class ResourceManager {
   readonly side: Side
   readonly lua: LuaRuntime
   readonly output: ProcessOutput
+  /** What the process's code may access, as FiveM's security keeps it. */
+  readonly security = new Security()
+  /** What prints on the process's console, as FiveM's console prints it. */
+  readonly printer: Printer
+  /** The process's default console, which FiveM's GetDefaultContext gives. */
+  readonly defaultConsole: ConsoleContext
+  /**
+   * The console that scripts run commands in, and whose buffer runs each
+   * tick: on servers, that of the server instance, which runs the commands
+   * it does not have in the default console, and on clients, the default
+   * console.
+   */
+  readonly console: ConsoleContext
   readonly natives = new NativeRegistry<NativeContext>()
   readonly events = new EventManager(this)
   /** What dependencies such as /server:5181 test, which only servers enforce. */
@@ -106,6 +126,27 @@ export class ResourceManager {
     this.lua = options.lua
     this.output = options.output
     this.#time = options.time
+    this.printer = new Printer((channel, text) => this.output.write(channel, text))
+    const server = this.side === 'server'
+    const consoleOptions = {
+      security: this.security,
+      output: this.printer,
+      server,
+      clock: () => this.#time(),
+    }
+    this.defaultConsole = new ConsoleContext(consoleOptions)
+    addPrinterCommands(this.defaultConsole, this.printer)
+    addAccessCommands(this.defaultConsole)
+    // FiveM's security starts with this entry.
+    this.security.addEntry('system.console', 'command', 'allow')
+    if (server) {
+      this.console = new ConsoleContext({ ...consoleOptions, fallback: this.defaultConsole })
+      this.#startServerConsole()
+    } else {
+      // FiveM's client lets its own code set what servers replicate, among others.
+      this.security.addEntry('system.internal', 'builtin', 'allow')
+      this.console = this.defaultConsole
+    }
     this.natives.register(
       ...catalogNatives<NativeContext>(this.side),
       ...engineNatives(this.side),
@@ -207,12 +248,14 @@ export class ResourceManager {
   }
 
   /**
-   * Runs a tick as FiveM does: it triggers the queued events, then resumes
-   * the threads that are due in all runtimes. It takes the due threads of
-   * every runtime before it resumes any, so that threads queued during the
-   * tick wait for the next one.
+   * Runs a tick as FiveM does: it runs the commands of the console's buffer
+   * as the console, triggers the queued events, then resumes the threads
+   * that are due in all runtimes. It takes the due threads of every runtime
+   * before it resumes any, so that threads queued during the tick wait for
+   * the next one.
    */
   tick(): void {
+    this.security.runAs('system.console', () => this.console.executeBuffer())
     this.events.tick()
     const ticking = this.#ticking.map((resource) => ({ resource, runtime: resource.runtime! }))
     for (const { runtime } of ticking) runtime.collect()
@@ -222,19 +265,19 @@ export class ResourceManager {
     }
   }
 
-  /** Writes to the console on `channel`; see ProcessOutput.write. */
+  /** Prints on the console on `channel`, as FiveM's console::Printf does; see Printer. */
   log(channel: string, text: string): void {
-    this.output.write(channel, text)
+    this.printer.print(channel, text)
   }
 
-  /** Writes a warning to the console on `channel`, as FiveM's console::PrintWarning does. */
+  /** Prints a warning on the console on `channel`, as FiveM's console::PrintWarning does. */
   logWarning(channel: string, text: string): void {
-    this.log(channel, colored('^3Warning: ', text))
+    this.printer.printWarning(channel, text)
   }
 
-  /** Writes an error to the console on `channel`, as FiveM's console::PrintError does. */
+  /** Prints an error on the console on `channel`, as FiveM's console::PrintError does. */
   logError(channel: string, text: string): void {
-    this.log(channel, colored('^1Error: ', text))
+    this.printer.printError(channel, text)
   }
 
   /**
@@ -281,6 +324,22 @@ export class ResourceManager {
     return native === undefined
       ? null
       : nativeWrapper(native, name, { direct: this.side === 'client' })
+  }
+
+  /**
+   * Sets up the security and the console of a server as FiveM's server does
+   * as it starts, before it runs its command line.
+   */
+  #startServerConsole(): void {
+    const { security } = this
+    security.addEntry('system.console', 'command', 'allow')
+    security.addEntry(EVERYONE, 'command.help', 'allow')
+    security.runAs('system.console', () => {
+      // FiveM keeps what commands that it forwards print from its console.
+      this.console.executeDirect(['con_addChannelFilter', 'forward:*/*', 'noprint'])
+    })
+    security.addEntry('system.console', 'webadmin', 'allow')
+    security.addEntry('resource.monitor', 'command.quit', 'allow')
   }
 
   /**
