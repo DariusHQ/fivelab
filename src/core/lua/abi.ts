@@ -146,7 +146,9 @@ export const CFunction = {
   /**
    * checked(checks, fn) returns fn behind a C function that checks its
    * arguments as FiveM's C functions do, one character of `checks` for each:
-   * 's' a string, 'n' a number, 'i' an integer, '.' any value.
+   * 's' a string, 'n' a number, 'i' an integer, '.' any value. They run
+   * from the first argument to the last, or after a leading '<' from the
+   * last to the first.
    */
   checked: 21,
 } as const

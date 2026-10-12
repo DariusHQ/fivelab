@@ -266,4 +266,32 @@ describe('C functions', () => {
       'invoked',
     ])
   })
+
+  it('check arguments as FiveM checks them, in either order', async () => {
+    const lua = (await createRuntime()).newState()
+    const checked = lua.cFunction(CFunction.checked)
+    const [types] = lua.run(
+      `return function(a, b, c, d) return type(a), math.type(b), math.type(c), type(d) end`,
+      '=test',
+    )
+    lua.setGlobal('forward', lua.call(checked, 'sni.', types!)[0]!)
+    lua.setGlobal('backward', lua.call(checked, '<sni', types!)[0]!)
+    expect(lua.run(`return forward(1, '2', 3.0, {})`, '=test')).toEqual([
+      'string',
+      'float',
+      'integer',
+      'table',
+    ])
+    const failure = (call: string) =>
+      lua.run(`return select(2, pcall(function() ${call} end))`, '=test')
+    expect(failure(`forward()`)).toEqual([
+      "test:1: bad argument #1 to 'forward' (string expected, got no value)",
+    ])
+    expect(failure(`backward()`)).toEqual([
+      "test:1: bad argument #3 to 'backward' (number expected, got no value)",
+    ])
+    expect(failure(`backward({}, 1, 2)`)).toEqual([
+      "test:1: bad argument #1 to 'backward' (string expected, got table)",
+    ])
+  })
 })

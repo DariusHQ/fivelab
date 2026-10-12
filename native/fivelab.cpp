@@ -220,14 +220,23 @@ static int fl_checkedcall_k(lua_State *L, int status, lua_KContext ctx) {
 ** Calls the function in upvalue 2 after checking the arguments as upvalue 1
 ** says, one character for each: 's' for a string, 'n' for a number and 'i'
 ** for an integer, each taking what converts to one and passing on what it
-** converts to, or '.' for any value. This is how FiveLab implements in Lua
-** what FiveM implements in C: argument errors name the function the way the
+** converts to, or '.' for any value. The checks run from the first argument
+** to the last, or after a leading '<' from the last to the first, as some of
+** FiveM's C functions check them. This is how FiveLab implements in Lua what
+** FiveM implements in C: argument errors name the function the way the
 ** script called it, and the function may yield.
 */
 static int fl_checkedcall(lua_State *L) {
-  size_t count;
-  const char *checks = lua_tolstring(L, lua_upvalueindex(1), &count);
-  for (int i = 1; i <= static_cast<int>(count); i++) {
+  size_t length;
+  const char *checks = lua_tolstring(L, lua_upvalueindex(1), &length);
+  const bool reversed = length > 0 && checks[0] == '<';
+  if (reversed) {
+    checks++;
+    length--;
+  }
+  const int count = static_cast<int>(length);
+  for (int n = 0; n < count; n++) {
+    const int i = reversed ? count - n : n + 1;
     switch (checks[i - 1]) {
       case 's':
         luaL_checkstring(L, i);
