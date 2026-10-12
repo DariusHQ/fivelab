@@ -27,9 +27,10 @@ export interface ResourceDefinition {
    */
   readonly metadata?: readonly MetadataEntry[]
   /**
-   * Where the resource is, as FiveM's messages name it. Defaults to
-   * resources/<name> on servers, and on clients to resources:/<name>/, where
-   * FiveM mounts what servers send.
+   * Where the resource is, as FiveM's messages name it, and on servers, the
+   * directories that give its categories. Defaults to resources/<name> on
+   * servers, and on clients to resources:/<name>/, where FiveM mounts what
+   * servers send.
    */
   readonly path?: string
 }
@@ -51,6 +52,13 @@ export class Resource {
   readonly name: string
   readonly manager: ResourceManager
   readonly path: string
+  /**
+   * The categories of the resource on servers: the directories in brackets
+   * that it is in, such as [local] and [maps] for resources/[local]/[maps]/x,
+   * which FiveM's server finds above the directories of resources as it
+   * scans them.
+   */
+  readonly categories: readonly string[]
   readonly metadata: readonly MetadataEntry[]
   /**
    * The events the resource's scripts registered handlers for. FiveM keeps
@@ -83,6 +91,7 @@ export class Resource {
     this.name = name
     this.path =
       definition.path ?? (manager.side === 'client' ? `resources:/${name}/` : `resources/${name}`)
+    this.categories = categoriesOf(this.path)
     const files = new Map(Object.entries(definition.files))
     this.metadata =
       definition.metadata ?? readManifest(manager.lua, this.path, (path) => files.get(path))
@@ -354,6 +363,23 @@ export class Resource {
     if (this.#context?.runtime !== runtime) this.#context = new NativeContext(runtime, this)
     return this.#context
   }
+}
+
+/** Whether FiveM's server takes a name for that of a category of resources: one in brackets. */
+export function isCategory(name: string): boolean {
+  return name.startsWith('[') && name.endsWith(']')
+}
+
+/**
+ * The categories of a resource at `path`: the directories in brackets right
+ * above its own, the only ones that FiveM's server looks for resources in.
+ */
+function categoriesOf(path: string): string[] {
+  const directories = path.split(/[\\/]/).filter((part) => part !== '')
+  directories.pop()
+  let first = directories.length
+  while (first > 0 && isCategory(directories[first - 1]!)) first--
+  return directories.slice(first)
 }
 
 /**

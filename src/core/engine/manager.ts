@@ -18,13 +18,14 @@ import {
 } from '../natives/index.ts'
 import { CLOCK_START, type ScriptRuntime, type StackBoundaries } from '../scripting/runtime.ts'
 import { ConsoleBuffer } from './buffer.ts'
+import { addResourceCommands } from './control.ts'
 import { Constraints, DEFAULT_GAME_BUILD, FIVEM_BUILD, parseGameBuild } from './constraints.ts'
 import type { NativeContext } from './context.ts'
 import { Dependencies } from './dependencies.ts'
 import { EventManager } from './events.ts'
 import { INT32_MIN } from './hook.ts'
 import { KvpStore } from './kvp.ts'
-import { atoi, strtoull } from '../libc.ts'
+import { atoi, compareUtf8, strtoull } from '../libc.ts'
 import { isFxVersionAtLeast } from './manifest.ts'
 import { arrayLength } from './msgpack.ts'
 import { engineNatives } from './natives/index.ts'
@@ -132,6 +133,7 @@ export class ResourceManager {
   readonly #ticking: Resource[] = []
   /** The state of the rand() that ids of runtimes come from, which starts at 1 on Windows. */
   #rand = 1
+  #configured = false
 
   constructor(options: ResourceManagerOptions) {
     this.side = options.side
@@ -163,6 +165,7 @@ export class ResourceManager {
       this.convarPermissions = new ConvarPermissions()
       addConvarPermissionCommands(this.defaultConsole, this.convarPermissions)
       this.console = new ConsoleContext({ ...consoleOptions, fallback: this.defaultConsole })
+      addResourceCommands(this)
       this.#startServerConsole()
     } else {
       // FiveM's client lets its own code set what servers replicate, among others.
@@ -242,6 +245,31 @@ export class ResourceManager {
     return this.#resources.values()
   }
 
+  /** The names of the resources in a category, such as [local], in the order of their bytes. */
+  resourcesInCategory(category: string): string[] {
+    return Array.from(this.#resources.values())
+      .filter((resource) => resource.categories.includes(category))
+      .map((resource) => resource.name)
+      .sort(compareUtf8)
+  }
+
+  /**
+   * Whether the server ended its initial configuration; see
+   * endInitialConfiguration.
+   */
+  get configured(): boolean {
+    return this.#configured
+  }
+
+  /**
+   * Ends the initial configuration of a server, as FiveM's server does once
+   * it ran its command line, and the config files that this executes: from
+   * then on, ensure restarts the resources that are started.
+   */
+  endInitialConfiguration(): void {
+    this.#configured = true
+  }
+
   /**
    * The runtime that a function reference names, and the index of the
    * reference in it, as FiveM looks references up: by the resource, or one
@@ -315,6 +343,14 @@ export class ResourceManager {
   /** Prints on the console on `channel`, as FiveM's console::Printf does; see Printer. */
   log(channel: string, text: string): void {
     this.printer.print(channel, text)
+  }
+
+  /**
+   * Prints on the console on `channel`, as FiveM's trace does: the text up
+   * to its first NUL, as trace passes it on as a C string.
+   */
+  trace(channel: string, text: string): void {
+    this.printer.print(channel, text.split('\0', 1)[0]!)
   }
 
   /** Prints a warning on the console on `channel`, as FiveM's console::PrintWarning does. */
