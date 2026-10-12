@@ -38,6 +38,32 @@ export interface TestProcess {
   take(): string[]
 }
 
+/** Starts a resource with `files` and returns the lines written but those of every start. */
+export function startResource(
+  proc: TestProcess,
+  name: string,
+  files: ResourceDefinition['files'],
+): string[] {
+  proc.add(name, files).start()
+  const starting = [
+    `[citizen-scripting-core] Creating script environments for ${name}`,
+    `[resources] Started resource ${name}`,
+  ]
+  return proc.take().filter((line) => !starting.includes(line))
+}
+
+/** Runs a command line in the process's console as `principal`, or as no principal. */
+export function runCommand(
+  manager: ResourceManager,
+  line: string,
+  principal?: string,
+  source = '',
+): void {
+  const execute = () => manager.console.commands.invoke(line, source)
+  if (principal === undefined) execute()
+  else manager.security.runAs(principal, execute)
+}
+
 export async function createProcess(options: ProcessOptions = {}): Promise<TestProcess> {
   const { side = 'server' } = options
   const lua = await createRuntime()
