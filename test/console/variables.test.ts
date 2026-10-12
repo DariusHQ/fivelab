@@ -194,22 +194,66 @@ describe('Variables', () => {
     expect(buffer).toEqual(['say a\n', 'say a\n', 'say b\n'])
   })
 
-  it('tell listeners of the variables whose values change', () => {
+  it('tell listeners of the variables whose values change, as FiveM calls those of events', () => {
     const { variables, run } = createVariables()
     const seen: string[] = []
-    const first = variables.watch((name) => {
-      seen.push(`first ${name}`)
-      if (name === 'b') variables.watch((later) => seen.push(`added ${later}`))
-      if (name === 'b') variables.unwatch(second)
+    const listen = (label: string, also?: (name: string) => void) =>
+      variables.watch((name) => {
+        seen.push(`${label} ${name}`)
+        also?.(name)
+      })
+    // Listeners may stop listening, and those that the last one adds miss the change.
+    const first = listen('first', (name) => {
+      if (name !== 'b') return
+      listen('third', (later) => {
+        if (later === 'c') listen('fourth')
+      })
     })
-    const second = variables.watch((name) => seen.push(`second ${name}`))
+    const second = listen('second', (name) => {
+      if (name === 'c') variables.unwatch(second)
+    })
     expect([first, second]).toEqual([0, 1])
     run('set A 1')
     run('set a 1')
     run('set b 2')
-    variables.unwatch(first)
     run('set c 3')
-    expect(seen).toEqual(['first A', 'second A', 'first b', 'added b', 'added c'])
+    run('set d 4')
+    variables.unwatch(first)
+    run('set e 5')
+    expect(seen).toEqual([
+      ...['first A', 'second A'],
+      ...['first b', 'second b', 'third b'],
+      ...['first c', 'second c', 'third c'],
+      ...['first d', 'third d', 'fourth d'],
+      ...['third e', 'fourth e'],
+    ])
+  })
+
+  it('forget listeners that stop listening', () => {
+    const { variables, run } = createVariables()
+    const seen: string[] = []
+    variables.watch((name) => {
+      seen.push(`first ${name}`)
+      if (name === 'a') variables.watch((later) => seen.push(`added ${later}`))
+    })
+    variables.unwatch(variables.watch((name) => seen.push(`second ${name}`)))
+    run('set a 1')
+    run('set b 1')
+    expect(seen).toEqual(['first a', 'first b', 'added b'])
+  })
+
+  it('go on past listeners that a listener stops from listening', () => {
+    const { variables, run } = createVariables()
+    const seen: string[] = []
+    variables.watch((name) => {
+      seen.push(`first ${name}`)
+      variables.unwatch(second)
+    })
+    const second = variables.watch((name) => seen.push(`second ${name}`))
+    variables.watch((name) => seen.push(`third ${name}`))
+    run('set a 1')
+    run('set b 1')
+    expect(seen).toEqual(['first a', 'third a', 'first b', 'third b'])
   })
 
   it('give trackers their values now, and each time they are set, even to the same value', () => {

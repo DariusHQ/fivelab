@@ -50,6 +50,14 @@ interface Entry {
   readonly token: number
 }
 
+/** A listener of the variables, linked to the next as FiveM links the callbacks of an event. */
+interface Listener {
+  readonly cookie: number
+  readonly listener: (name: string) => void
+  next: Listener | undefined
+  removed: boolean
+}
+
 /**
  * The console variables of a console, as FiveM's ConsoleVariableManager
  * keeps them, by name as _stricmp compares names. Its commands set them:
@@ -67,7 +75,7 @@ export class Variables {
   suppressReadOnlyWarning = false
   /** The entries, ordered by name as _stricmp orders names. */
   readonly #entries: Entry[] = []
-  readonly #listeners = new Map<number, (name: string) => void>()
+  #firstListener: Listener | undefined
   #nextToken = 0
   #nextCookie = 0
 
@@ -180,25 +188,55 @@ export class Variables {
       .map(({ name, flags, variable }) => ({ name, flags, variable }))
   }
 
-  /** Calls `listener` with the names of variables whose values change, and returns its cookie. */
+  /**
+   * Calls `listener` with the names of variables whose values change, after
+   * the listeners before it, and returns its cookie.
+   */
   watch(listener: (name: string) => void): number {
-    const cookie = this.#nextCookie++
-    this.#listeners.set(cookie, listener)
-    return cookie
+    const added: Listener = {
+      cookie: this.#nextCookie++,
+      listener,
+      next: undefined,
+      removed: false,
+    }
+    let last = this.#firstListener
+    if (last === undefined) {
+      this.#firstListener = added
+    } else {
+      while (last.next !== undefined) last = last.next
+      last.next = added
+    }
+    return added.cookie
   }
 
   unwatch(cookie: number): void {
-    this.#listeners.delete(cookie)
+    let previous: Listener | undefined
+    for (let listener = this.#firstListener; listener !== undefined; listener = listener.next) {
+      if (listener.cookie === cookie) {
+        if (previous === undefined) this.#firstListener = listener.next
+        else previous.next = listener.next
+        listener.removed = true
+        return
+      }
+      previous = listener
+    }
   }
 
   /**
    * Marks a variable modified and tells the listeners, as FiveM's
-   * MarkConsoleVarModified does, including those that listeners add, but
-   * not those they remove.
+   * MarkConsoleVarModified does. FiveM takes the next listener before it
+   * calls each one, so a listener may stop listening, and the listeners
+   * that the last one adds miss the change. A listener that stops the next
+   * one from listening is undefined behavior in FiveM, and FiveLab goes on
+   * past it.
    */
   markModified(name: string): void {
     this.addFlags(name, VariableFlags.modified)
-    for (const listener of this.#listeners.values()) listener(name)
+    for (let listener = this.#firstListener; listener !== undefined;) {
+      const { next } = listener
+      if (!listener.removed) listener.listener(name)
+      listener = next
+    }
   }
 
   #find(name: string): Entry | undefined {
