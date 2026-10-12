@@ -1,0 +1,148 @@
+import { compareUtf8 } from '../libc.ts'
+
+/** Whether an access control entry allows its principal access to its object, or denies it. */
+export type Access = 'allow' | 'deny'
+
+/** An access control entry, or ACE, as FiveM's add_ace adds them. */
+export interface AccessControlEntry {
+  readonly principal: string
+  readonly object: string
+  readonly access: Access
+}
+
+/** A principal that inherits the access of another, as FiveM's add_principal adds them. */
+export interface PrincipalInheritance {
+  readonly child: string
+  readonly parent: string
+}
+
+/** The principal that every principal is, which FiveM checks when no code runs as another. */
+export const EVERYONE = 'builtin.everyone'
+
+/**
+ * FiveM's security context, se::Context: what principals, such as
+ * resource.<name> or system.console, may access, as access control entries
+ * on objects, such as command.<name>, and the principals that they inherit
+ * access from. Principals and objects are lowercased, as C's tolower does,
+ * so only ASCII letters.
+ */
+export class Security {
+  /** The entries, ordered by object as C++ orders strings, then as they were added. */
+  readonly #entries: AccessControlEntry[] = []
+  /** The inheritances, ordered by child as C++ orders strings, then as they were added. */
+  readonly #inheritances: PrincipalInheritance[] = []
+  /** The principals that code runs as, the innermost first. */
+  readonly #principals: string[] = []
+
+  /** The entries, ordered by object, then as they were added, as FiveM's list_aces lists them. */
+  get entries(): readonly AccessControlEntry[] {
+    return [...this.#entries]
+  }
+
+  /** The inheritances, ordered by child, then as they were added, as FiveM's list_principals lists them. */
+  get inheritances(): readonly PrincipalInheritance[] {
+    return [...this.#inheritances]
+  }
+
+  /** The principals that code runs as, the innermost first. */
+  get principals(): readonly string[] {
+    return [...this.#principals]
+  }
+
+  addEntry(principal: string, object: string, access: Access): void {
+    const entry = { principal: lower(principal), object: lower(object), access }
+    insertSorted(this.#entries, entry, (other) => compareUtf8(entry.object, other.object))
+  }
+
+  /** Removes the entries for an object that give a principal an access. */
+  removeEntry(principal: string, object: string, access: Access): void {
+    const [p, o] = [lower(principal), lower(object)]
+    removeWhere(this.#entries, (e) => e.principal === p && e.object === o && e.access === access)
+  }
+
+  addInheritance(child: string, parent: string): void {
+    const inheritance = { child: lower(child), parent: lower(parent) }
+    insertSorted(this.#inheritances, inheritance, (other) =>
+      compareUtf8(inheritance.child, other.child),
+    )
+  }
+
+  removeInheritance(child: string, parent: string): void {
+    const [c, p] = [lower(child), lower(parent)]
+    removeWhere(this.#inheritances, (i) => i.child === c && i.parent === p)
+  }
+
+  /** Runs `fn` as `principal`, as FiveM's se::ScopedPrincipal does. */
+  runAs<T>(principal: string, fn: () => T): T {
+    this.#principals.unshift(lower(principal))
+    try {
+      return fn()
+    } finally {
+      this.#principals.shift()
+    }
+  }
+
+  /**
+   * Whether the code that runs may access `object`: whether one of the
+   * principals it runs as may, or, if it runs as none, everyone.
+   */
+  check(object: string): boolean {
+    if (this.#principals.length === 0) return this.checkPrincipal(EVERYONE, object)
+    return this.#principals.some((principal) => this.checkPrincipal(principal, object))
+  }
+
+  /**
+   * Whether `principal` may access `object`: whether an entry allows it,
+   * everyone or a principal that it inherits from access to the object or to
+   * one of its parents, such as command for command.say, and none denies it.
+   */
+  checkPrincipal(principal: string, object: string): boolean {
+    const principals = this.#ancestors(lower(principal))
+    principals.add(EVERYONE)
+    // The object, then each of its parents: what comes before its dots.
+    const objects = [lower(object)]
+    for (let last = objects[0]!; last.includes('.'); objects.push(last)) {
+      last = last.slice(0, last.lastIndexOf('.'))
+    }
+    let allowed = false
+    for (const { principal: who, object: what, access } of this.#entries) {
+      if (!principals.has(who) || !objects.includes(what)) continue
+      if (access === 'deny') return false
+      allowed = true
+    }
+    return allowed
+  }
+
+  /** A principal and the principals it inherits from, through others too. */
+  #ancestors(principal: string): Set<string> {
+    const found = new Set([principal])
+    const pending = [principal]
+    while (pending.length > 0) {
+      const child = pending.pop()!
+      for (const { child: of, parent } of this.#inheritances) {
+        if (of !== child || found.has(parent)) continue
+        found.add(parent)
+        pending.push(parent)
+      }
+    }
+    return found
+  }
+}
+
+/** A string lowercased as C's tolower does, which lowercases only ASCII letters. */
+function lower(text: string): string {
+  return text.replace(/[A-Z]+/g, (letters) => letters.toLowerCase())
+}
+
+/** Inserts `item` after the items it does not order before. */
+function insertSorted<T>(items: T[], item: T, compare: (other: T) => number): void {
+  let index = items.length
+  while (index > 0 && compare(items[index - 1]!) < 0) index--
+  items.splice(index, 0, item)
+}
+
+function removeWhere<T>(items: T[], matches: (item: T) => boolean): void {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (matches(items[i]!)) items.splice(i, 1)
+  }
+}
