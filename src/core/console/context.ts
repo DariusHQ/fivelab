@@ -27,6 +27,8 @@ const encoder = new TextEncoder()
 export class ConsoleContext {
   readonly security: Security
   readonly output: ConsoleOutput
+  /** Whether the context is a server's. */
+  readonly server: boolean
   readonly commands: Commands
   readonly variables: Variables
   readonly fallback: ConsoleContext | undefined
@@ -40,6 +42,7 @@ export class ConsoleContext {
     const { security, output, server, clock, fallback } = options
     this.security = security
     this.output = output
+    this.server = server
     this.fallback = fallback
     this.#clock = clock
     this.commands = new Commands(security, output, fallback?.commands)
