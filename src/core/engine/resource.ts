@@ -3,7 +3,12 @@ import { NativeContext } from './context.ts'
 import { FileTree, glob, normalizePath } from './glob.ts'
 import { Hook } from './hook.ts'
 import type { ResourceManager } from './manager.ts'
-import { readManifest, type MetadataEntry, type MetadataLocation } from './manifest.ts'
+import {
+  clientNativesFile,
+  readManifest,
+  type MetadataEntry,
+  type MetadataLocation,
+} from './manifest.ts'
 
 /** The states of a resource, named as GetResourceState names them. */
 export type ResourceState = 'uninitialized' | 'stopped' | 'starting' | 'started' | 'stopping'
@@ -227,7 +232,8 @@ export class Resource {
   /**
    * Creates the runtime and loads the scripts into it, as FiveM does for a
    * resource with scripts that its Lua runtime handles: those with ".lua" in
-   * their name.
+   * their name. On clients, it says when FiveM would give the scripts older
+   * natives than FiveLab does.
    */
   #createRuntime(): void {
     if (this.#runtime !== null) {
@@ -249,6 +255,15 @@ export class Resource {
     const lua = scripts.filter((path) => path.includes('.lua'))
     if (lua.length === 0) return
     this.manager.log('citizen-scripting-core', `Creating script environments for ${this.name}\n`)
+    if (this.manager.side === 'client') {
+      const natives = clientNativesFile(this.metadata)
+      if (natives !== 'natives_universal.lua') {
+        this.manager.output.diagnose(
+          this.name,
+          `FiveM would give the scripts of ${this.name} the natives of ${natives}, by the versions its manifest names, which FiveLab does not have: it gives them those of natives_universal.lua, as FiveM does for resources with fx_version 'adamant' or later.`,
+        )
+      }
+    }
     const runtime = this.enter(() => ScriptRuntime.create(this.manager.lua, this.#host()))
     this.#runtime = runtime
     this.manager.addRuntime(this)

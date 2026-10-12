@@ -228,6 +228,38 @@ files { 'html/*', 'stream/**' }`,
     expect(proc.diagnostics).toEqual(['a: FiveLab runs only Lua scripts, so it skips server.js.'])
   })
 
+  it('say on clients when FiveM would give their scripts older natives', async () => {
+    const proc = await createProcess({ side: 'client' })
+    const old = (version: string) => ({
+      '__resource.lua': `resource_manifest_version '${version}'\nclient_script 'client.lua'`,
+      'client.lua': `print('client')`,
+    })
+    proc.add('a', old('f15e72ec-3972-4fe4-9c7d-afc5394ae207')).start()
+    proc.add('b', old('44febabe-d386-4d18-afbe-5e627f4af937')).start()
+    proc.add('c', { 'client.lua': `print('client')` }).start()
+    proc.add('d', { 'client.js': `console.log('js')` }).start()
+    proc
+      .add('e', {
+        'fxmanifest.lua': `fx_version 'cerulean'\ngame 'gta5'\nclient_script 'client.lua'`,
+        'client.lua': `print('client')`,
+      })
+      .start()
+    const later = `as FiveM does for resources with fx_version 'adamant' or later.`
+    expect(proc.diagnostics).toEqual([
+      `a: FiveM would give the scripts of a the natives of natives_0193d0af.lua, by the versions its manifest names, which FiveLab does not have: it gives them those of natives_universal.lua, ${later}`,
+      `c: FiveM would give the scripts of c the natives of natives_21e43a33.lua, by the versions its manifest names, which FiveLab does not have: it gives them those of natives_universal.lua, ${later}`,
+      'd: FiveLab runs only Lua scripts, so it skips client.js.',
+    ])
+    const server = await createProcess()
+    server
+      .add('a', {
+        '__resource.lua': `server_script 'server.lua'`,
+        'server.lua': `print('server')`,
+      })
+      .start()
+    expect(server.diagnostics).toEqual([])
+  })
+
   it('stop their threads when they stop', async () => {
     const proc = await createProcess()
     const res = proc.add('a', {

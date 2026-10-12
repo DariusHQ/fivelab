@@ -50,6 +50,52 @@ export function isFxVersionAtLeast(metadata: readonly MetadataEntry[], version: 
   return own !== -1 && own >= FX_VERSIONS.indexOf(version)
 }
 
+/** The versions of __resource.lua that FiveM knows, in its order, after none. */
+const MANIFEST_VERSIONS = [
+  '00000000-0000-0000-0000-000000000000',
+  '77731fab-63ca-442c-a67b-abc70f28dfa5',
+  'f15e72ec-3972-4fe4-9c7d-afc5394ae207',
+  '44febabe-d386-4d18-afbe-5e627f4af937',
+  '05cfa83c-a124-4cfa-a768-c24a5811d8f9',
+]
+
+/** The natives of FiveM's GTA V clients, with the manifest versions they start at, oldest first. */
+const CLIENT_NATIVES = [
+  ['natives_21e43a33.lua', MANIFEST_VERSIONS[0]!],
+  ['natives_0193d0af.lua', 'f15e72ec-3972-4fe4-9c7d-afc5394ae207'],
+  ['natives_universal.lua', '44febabe-d386-4d18-afbe-5e627f4af937'],
+] as const
+
+/**
+ * A manifest version as FiveM parses guids: the 36 characters it starts
+ * with, in hex digits of either case and dashes, or else none.
+ */
+function parseManifestVersion(value: string): string {
+  const guid = value.slice(0, 36)
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(guid)
+    ? guid.toLowerCase()
+    : MANIFEST_VERSIONS[0]!
+}
+
+/**
+ * The file of natives that FiveM's GTA V client gives the scripts of a
+ * resource, by its manifest: natives_universal.lua for an fx_version, its
+ * first, of adamant or later, and otherwise the newest whose version its
+ * resource_manifest_version, its first, has reached. Like FiveM, it gives
+ * natives_21e43a33.lua for versions that FiveM does not know.
+ */
+export function clientNativesFile(metadata: readonly MetadataEntry[]): string {
+  if (isFxVersionAtLeast(metadata, 'adamant')) return 'natives_universal.lua'
+  const value = metadata.find(([key]) => key === 'resource_manifest_version')?.[1]
+  // An unknown version, at -1, has reached none.
+  const own = MANIFEST_VERSIONS.indexOf(parseManifestVersion(value ?? ''))
+  let file: string = CLIENT_NATIVES[0][0]
+  for (const [natives, since] of CLIENT_NATIVES) {
+    if (own >= MANIFEST_VERSIONS.indexOf(since)) file = natives
+  }
+  return file
+}
+
 /**
  * Reads the manifest of the resource at `path` as FiveM does: it runs its
  * fxmanifest.lua, or else its __resource.lua, in a Lua state of its own, and

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { ManifestError, readManifest } from '../../src/core/engine/manifest.ts'
+import {
+  clientNativesFile,
+  ManifestError,
+  readManifest,
+  type MetadataEntry,
+} from '../../src/core/engine/manifest.ts'
 import { createRuntime, thrown } from '../lua/helpers.ts'
 
 const lua = await createRuntime()
@@ -173,5 +178,76 @@ is_cfxv2 'false'`,
     expect(message(`AddMetaData(setmetatable({}, { __name = 'Thing' }), 'v')`)).toBe(
       "Could not execute resource metadata file resources/a/fxmanifest.lua: bad argument #1 to 'AddMetaData' (string expected, got Thing)",
     )
+  })
+})
+
+describe('clientNativesFile', () => {
+  const versioned = (version: string): MetadataEntry[] => [['resource_manifest_version', version]]
+
+  it('gives the natives of the newest build that the manifest version has reached', () => {
+    expect(clientNativesFile([])).toBe('natives_21e43a33.lua')
+    expect(clientNativesFile(versioned('77731fab-63ca-442c-a67b-abc70f28dfa5'))).toBe(
+      'natives_21e43a33.lua',
+    )
+    expect(clientNativesFile(versioned('f15e72ec-3972-4fe4-9c7d-afc5394ae207'))).toBe(
+      'natives_0193d0af.lua',
+    )
+    expect(clientNativesFile(versioned('44febabe-d386-4d18-afbe-5e627f4af937'))).toBe(
+      'natives_universal.lua',
+    )
+    // FiveM orders this one after 44febabe, which it dates later.
+    expect(clientNativesFile(versioned('05cfa83c-a124-4cfa-a768-c24a5811d8f9'))).toBe(
+      'natives_universal.lua',
+    )
+  })
+
+  it('reads manifest versions as FiveM parses guids, from their first 36 characters', () => {
+    expect(clientNativesFile(versioned('F15E72EC-3972-4FE4-9C7D-AFC5394AE207'))).toBe(
+      'natives_0193d0af.lua',
+    )
+    expect(clientNativesFile(versioned('44febabe-d386-4d18-afbe-5e627f4af937 and more'))).toBe(
+      'natives_universal.lua',
+    )
+    for (const version of [
+      '{44febabe-d386-4d18-afbe-5e627f4af937}',
+      '44febabe-d386-4d18-afbe-5e627f4af93',
+      '44febabe-d386-4d18-afbe5e627f4af937',
+      '44febabe-d386-4d18-afbe-5e627f4af93g',
+      'ffffffff-ffff-ffff-ffff-ffffffffffff',
+    ]) {
+      expect(clientNativesFile(versioned(version))).toBe('natives_21e43a33.lua')
+    }
+  })
+
+  it('reads the first manifest version, with its key as written', () => {
+    expect(
+      clientNativesFile([
+        ['resource_manifest_version', 'f15e72ec-3972-4fe4-9c7d-afc5394ae207'],
+        ['resource_manifest_version', '44febabe-d386-4d18-afbe-5e627f4af937'],
+      ]),
+    ).toBe('natives_0193d0af.lua')
+    expect(
+      clientNativesFile([['RESOURCE_MANIFEST_VERSION', '44febabe-d386-4d18-afbe-5e627f4af937']]),
+    ).toBe('natives_21e43a33.lua')
+  })
+
+  it('gives the universal natives for an fx_version, the first, of adamant or later', () => {
+    const old = versioned('77731fab-63ca-442c-a67b-abc70f28dfa5')
+    for (const version of ['adamant', 'bodacious', 'cerulean']) {
+      expect(clientNativesFile([...old, ['fx_version', version]])).toBe('natives_universal.lua')
+    }
+    expect(clientNativesFile([['fx_version', 'zebra']])).toBe('natives_21e43a33.lua')
+    expect(
+      clientNativesFile([
+        ['fx_version', 'zebra'],
+        ['fx_version', 'cerulean'],
+      ]),
+    ).toBe('natives_21e43a33.lua')
+    expect(
+      clientNativesFile([
+        ['fx_version', 'zebra'],
+        ['resource_manifest_version', '44febabe-d386-4d18-afbe-5e627f4af937'],
+      ]),
+    ).toBe('natives_universal.lua')
   })
 })
