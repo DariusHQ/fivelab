@@ -11,7 +11,7 @@ function packCommands(commands: readonly CommandInfo[]): Uint8Array {
   return pack(commands.map(({ name, resource, arity }) => ({ name, resource, arity })))
 }
 
-/** Natives of the console of the process: its commands. */
+/** Natives of the console of the process: its commands and who may access what. */
 export function consoleNatives(): NativeDefinition<NativeContext>[] {
   // The functions that the commands scripts registered call, by the names
   // of the commands as written, for every runtime of the process: a script
@@ -73,6 +73,22 @@ export function consoleNatives(): NativeDefinition<NativeContext>[] {
         // when it finds a resource of that name or one that provides it.
         if (manager.getResource(name) === undefined) return packCommands([])
         return packCommands(manager.console.commands.list.filter((c) => c.resource === name))
+      },
+    ),
+    defineNative(
+      { name: 'IS_ACE_ALLOWED', result: 'BOOL', params: ['char* object'] },
+      (ctx: NativeContext, object) => ctx.manager.security.check(checkArgument(object, 0)),
+    ),
+    defineNative(
+      {
+        name: 'IS_PRINCIPAL_ACE_ALLOWED',
+        result: 'BOOL',
+        params: ['char* principal', 'char* object'],
+      },
+      // FiveM checks as the principal alone, not as those the code runs as.
+      (ctx: NativeContext, principal, object) => {
+        const who = checkArgument(principal, 0)
+        return ctx.manager.security.checkPrincipal(who, checkArgument(object, 1))
       },
     ),
   ]
