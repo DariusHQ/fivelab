@@ -153,6 +153,8 @@ export class ResourceManager {
       this.security.addEntry('system.internal', 'builtin', 'allow')
       this.convarPermissions = undefined
       this.console = this.defaultConsole
+      // FiveM's NUI console listens to the variables first, for its main menu, which FiveLab has not.
+      this.console.variables.watch(() => {})
     }
     this.natives.register(
       ...catalogNatives<NativeContext>(this.side),
