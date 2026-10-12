@@ -263,6 +263,7 @@ export class Variable<T extends VariableType = VariableType> {
   /** The value before a server set it, which clients go back to. */
   #offlineValue: VariableValue<T>
   #range: [min: number, max: number] | undefined
+  #tracker: ((value: VariableValue<T>) => void) | undefined
   readonly #tokens: number[]
 
   constructor(variables: Variables, name: string, type: T, defaultValue: VariableValue<T>) {
@@ -299,6 +300,15 @@ export class Variable<T extends VariableType = VariableType> {
   /** Limits the values of an int variable to a range, as FiveM's SetConstraints does. */
   setRange(min: number, max: number): void {
     this.#range = [min, max]
+  }
+
+  /**
+   * Gives `tracker` the value now, and each time the variable is set, even
+   * to the same value, as FiveM's ConVars give their tracking variables.
+   */
+  track(tracker: (value: VariableValue<T>) => void): void {
+    this.#tracker = tracker
+    tracker(this.#value)
   }
 
   /**
@@ -352,6 +362,7 @@ export class Variable<T extends VariableType = VariableType> {
     }
     const old = this.#value
     this.#value = value
+    this.#tracker?.(value)
     if (old !== value) this.#variables.markModified(this.name)
     return true
   }

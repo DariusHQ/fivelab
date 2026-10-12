@@ -98,12 +98,9 @@ export class Printer implements ConsoleOutput {
 export function addPrinterCommands(context: ConsoleContext, printer: Printer): void {
   const { commands, variables } = context
   const flags = VariableFlags.archive | VariableFlags.userPref
-  const developer = variables.define('developer', flags, 'int', 0)
-  const track = () => {
-    printer.developer = Number(developer.rawValue)
-  }
-  track()
-  variables.watch(track)
+  variables.define('developer', flags, 'int', 0).track((value) => {
+    printer.developer = Number(value)
+  })
   commands.add('con_addChannelFilter', ['string', 'string'], (pattern, action) =>
     printer.addFilter(pattern, parseAction(action)),
   )

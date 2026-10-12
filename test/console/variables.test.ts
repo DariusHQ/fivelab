@@ -212,6 +212,20 @@ describe('Variables', () => {
     expect(seen).toEqual(['first A', 'second A', 'first b', 'added b', 'added c'])
   })
 
+  it('give trackers their values now, and each time they are set, even to the same value', () => {
+    const { variables, run } = createVariables()
+    run('set limit 5')
+    const variable = variables.define('limit', VariableFlags.none, 'int', 1)
+    variable.setRange(0, 10)
+    const seen: unknown[] = []
+    variable.track((value) => seen.push(value))
+    run('limit 5')
+    run('limit 7')
+    run('limit 70')
+    run('limit x')
+    expect(seen).toEqual([5, 5, 7])
+  })
+
   it('are marked modified when their values change', () => {
     const { variables, run } = createVariables()
     variables.define('plain', VariableFlags.none, 'string', 'a')

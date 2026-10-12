@@ -17,12 +17,9 @@ import { VariableFlags } from './variables.ts'
 export function addAccessCommands(context: ConsoleContext): void {
   const { security, output, commands, variables } = context
   const print = (text: string) => output.print('security', text)
-  const debug = variables.define('se_debug', VariableFlags.none, 'bool', false)
-  const track = () => {
-    security.debug = debug.rawValue === true ? output : undefined
-  }
-  track()
-  variables.watch(track)
+  variables.define('se_debug', VariableFlags.none, 'bool', false).track((on) => {
+    security.debug = on === true ? output : undefined
+  })
   if (context.server) {
     const change =
       (apply: (principal: string, object: string, access: Access) => void) =>

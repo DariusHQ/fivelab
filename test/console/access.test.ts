@@ -142,9 +142,10 @@ describe('addAccessCommands', () => {
     ])
   })
 
-  it('keeps se_debug as it was set before', () => {
+  it('keeps se_debug as it was set before, without listening to the variables', () => {
     const { context, security } = createConsole(true, ['set se_debug 1'])
     expect(context.variables.find('se_debug')?.rawValue).toBe(true)
     expect(security.debug).toBe(context.output)
+    expect(context.variables.watch(() => {})).toBe(0)
   })
 })

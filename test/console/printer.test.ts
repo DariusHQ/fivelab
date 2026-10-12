@@ -45,7 +45,9 @@ describe('Printer', () => {
     run('developer -1')
     printer.printDeveloper('x', 'c\n')
     expect(written).toEqual(['[x] b\n'])
-    expect(createPrinter(['set developer 3']).printer.developer).toBe(3)
+    const before = createPrinter(['set developer 3'])
+    expect(before.printer.developer).toBe(3)
+    expect(before.context.variables.watch(() => {})).toBe(0)
   })
 
   it('keeps what it prints on the channels of filters from the console', () => {
