@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   clientNativesFile,
   ManifestError,
+  pluralEntries,
   readManifest,
   type MetadataEntry,
 } from '../../src/core/engine/manifest.ts'
@@ -178,6 +179,48 @@ is_cfxv2 'false'`,
     expect(message(`AddMetaData(setmetatable({}, { __name = 'Thing' }), 'v')`)).toBe(
       "Could not execute resource metadata file resources/a/fxmanifest.lua: bad argument #1 to 'AddMetaData' (string expected, got Thing)",
     )
+  })
+})
+
+describe('pluralEntries', () => {
+  it('gives the entries with plural names of entries that FiveM reads, with their singular', () => {
+    const plurals = [
+      'client_scripts',
+      'server_scripts',
+      'shared_scripts',
+      'files',
+      'exports',
+      'server_exports',
+      'dependencies',
+      'provides',
+      'games',
+    ]
+    const entries = read({
+      'fxmanifest.lua': `fx_version 'cerulean'
+${plurals.map((key) => `${key} 'a'`).join('\n')}
+client_scripts { 'b' }
+dependencies { 'c' }
+credits 'd'
+AddMetaData('Files', 'e')`,
+    })
+    expect(
+      pluralEntries(entries).map(([[key, value, location], singular]) => [
+        key,
+        value,
+        location?.line,
+        singular,
+      ]),
+    ).toEqual([
+      ['client_scripts', 'a', 2, 'client_script'],
+      ['server_scripts', 'a', 3, 'server_script'],
+      ['shared_scripts', 'a', 4, 'shared_script'],
+      ['files', 'a', 5, 'file'],
+      ['exports', 'a', 6, 'export'],
+      ['server_exports', 'a', 7, 'server_export'],
+      ['dependencies', 'a', 8, 'dependency'],
+      ['provides', 'a', 9, 'provide'],
+      ['games', 'a', 10, 'game'],
+    ])
   })
 })
 

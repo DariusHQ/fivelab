@@ -228,6 +228,23 @@ files { 'html/*', 'stream/**' }`,
     expect(proc.diagnostics).toEqual(['a: FiveLab runs only Lua scripts, so it skips server.js.'])
   })
 
+  it('say which entries of their manifest have plural names, which FiveM does not read', async () => {
+    const proc = await createProcess()
+    proc.add('a', {
+      'fxmanifest.lua': `fx_version 'cerulean'
+game 'gta5'
+client_scripts 'client.lua'
+server_scripts { 'server.lua' }
+dependencies 'b'`,
+    })
+    proc.add('b', {}, [['files', 'index.html']])
+    expect(proc.diagnostics).toEqual([
+      "a: a's manifest adds client_scripts `client.lua` (defined in fxmanifest.lua:3), which FiveM does not read: client_scripts drops its final s only for tables, so FiveM reads what client_script '...' and client_scripts { '...' } add, but not client_scripts '...'.",
+      "a: a's manifest adds dependencies `b` (defined in fxmanifest.lua:5), which FiveM does not read: dependencies drops its final s only for tables, so FiveM reads what dependency '...' and dependencies { '...' } add, but not dependencies '...'.",
+      "b: b's manifest adds files `index.html`, which FiveM does not read: files drops its final s only for tables, so FiveM reads what file '...' and files { '...' } add, but not files '...'.",
+    ])
+  })
+
   it('say on clients when FiveM would give their scripts older natives', async () => {
     const proc = await createProcess({ side: 'client' })
     const old = (version: string) => ({

@@ -50,6 +50,36 @@ export function isFxVersionAtLeast(metadata: readonly MetadataEntry[], version: 
   return own !== -1 && own >= FX_VERSIONS.indexOf(version)
 }
 
+/**
+ * Entries that FiveM reads, by the plural names that manifests give them.
+ * Given a table, such a name adds entries without its final s, which FiveM
+ * reads, but given a string, it adds one by that name, which FiveM does not.
+ */
+const PLURALS = new Map([
+  ['client_scripts', 'client_script'],
+  ['server_scripts', 'server_script'],
+  ['shared_scripts', 'shared_script'],
+  ['files', 'file'],
+  ['exports', 'export'],
+  ['server_exports', 'server_export'],
+  ['dependencies', 'dependency'],
+  ['provides', 'provide'],
+  ['games', 'game'],
+])
+
+/**
+ * The entries of a manifest that have the plural name of entries that FiveM
+ * reads, which it does not read, with the singular name.
+ */
+export function pluralEntries(
+  metadata: readonly MetadataEntry[],
+): (readonly [entry: MetadataEntry, singular: string])[] {
+  return metadata.flatMap((entry) => {
+    const singular = PLURALS.get(entry[0])
+    return singular === undefined ? [] : [[entry, singular] as const]
+  })
+}
+
 /** The versions of __resource.lua that FiveM knows, in its order, after none. */
 const MANIFEST_VERSIONS = [
   '00000000-0000-0000-0000-000000000000',

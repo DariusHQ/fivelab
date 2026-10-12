@@ -5,6 +5,7 @@ import { Hook } from './hook.ts'
 import type { ResourceManager } from './manager.ts'
 import {
   clientNativesFile,
+  pluralEntries,
   readManifest,
   type MetadataEntry,
   type MetadataLocation,
@@ -72,7 +73,11 @@ export class Resource {
   /** Runtimes of a stopped resource that close when their last call returns. */
   readonly #retired = new Set<ScriptRuntime>()
 
-  /** Throws a ManifestError when the resource has no metadata and its manifest does not load. */
+  /**
+   * Throws a ManifestError when the resource has no metadata and its
+   * manifest does not load. Says which entries of its manifest have plural
+   * names, which FiveM does not read.
+   */
   constructor(manager: ResourceManager, name: string, definition: ResourceDefinition) {
     this.manager = manager
     this.name = name
@@ -81,6 +86,16 @@ export class Resource {
     const files = new Map(Object.entries(definition.files))
     this.metadata =
       definition.metadata ?? readManifest(manager.lua, this.path, (path) => files.get(path))
+    for (const [[key, value, location], singular] of pluralEntries(this.metadata)) {
+      const where =
+        location === undefined
+          ? ''
+          : ` (defined in ${location.file.slice(location.file.lastIndexOf('/') + 1)}:${location.line})`
+      manager.output.diagnose(
+        name,
+        `${name}'s manifest adds ${key} \`${value}\`${where}, which FiveM does not read: ${key} drops its final s only for tables, so FiveM reads what ${singular} '...' and ${key} { '...' } add, but not ${key} '...'.`,
+      )
+    }
     if (manager.side === 'client') {
       const sent = clientFiles(new FileTree(this.path, files.keys()), this.metadata)
       this.#files = new Map([...files].filter(([path]) => sent.has(path)))
