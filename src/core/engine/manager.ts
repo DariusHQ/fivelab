@@ -23,6 +23,7 @@ import type { NativeContext } from './context.ts'
 import { Dependencies } from './dependencies.ts'
 import { EventManager } from './events.ts'
 import { INT32_MIN } from './hook.ts'
+import { KvpStore } from './kvp.ts'
 import { atoi, strtoull } from '../libc.ts'
 import { isFxVersionAtLeast } from './manifest.ts'
 import { arrayLength } from './msgpack.ts'
@@ -57,6 +58,8 @@ export interface ResourceManagerOptions {
   readonly oneSync?: boolean
   /** On servers, the game build that sv_enforceGameBuild enforces, 3258 by default as in FiveM. */
   readonly gameBuild?: number
+  /** The KVP of the resources, which FiveM keeps in a database: an empty one by default. */
+  readonly kvp?: KvpStore
 }
 
 /** What a function reference names; see ResourceManager.lookUpRef. */
@@ -104,6 +107,8 @@ export class ResourceManager {
   readonly convarPermissions: ConvarPermissions | undefined
   /** On servers, what they keep of what their console prints for scripts. */
   readonly consoleBuffer: ConsoleBuffer | undefined
+  /** The KVP of the resources, in the database of the process. */
+  readonly kvp: KvpStore
   readonly natives = new NativeRegistry<NativeContext>()
   readonly events = new EventManager(this)
   /** What dependencies such as /server:5181 test, which only servers enforce. */
@@ -133,6 +138,7 @@ export class ResourceManager {
     this.lua = options.lua
     this.output = options.output
     this.#time = options.time
+    this.kvp = options.kvp ?? new KvpStore()
     this.printer = new Printer((channel, text) => this.output.write(channel, text))
     const server = this.side === 'server'
     if (server) {

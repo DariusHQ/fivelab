@@ -3,6 +3,7 @@ import type { NativeContext } from '../context.ts'
 import { consoleNatives } from './console.ts'
 import { convarNatives } from './convars.ts'
 import { eventNatives } from './events.ts'
+import { kvpNatives } from './kvp.ts'
 import { refNatives } from './refs.ts'
 import { resourceNatives } from './resources.ts'
 import { scriptingNatives } from './scripting.ts'
@@ -16,5 +17,6 @@ export function engineNatives(side: Side): NativeDefinition<NativeContext>[] {
     ...resourceNatives(side),
     ...consoleNatives(side),
     ...convarNatives(side),
+    ...kvpNatives(side),
   ]
 }

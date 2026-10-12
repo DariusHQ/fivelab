@@ -1,5 +1,6 @@
 import {
   ResourceManager,
+  type KvpStore,
   type NativeContext,
   type Resource,
   type ResourceDefinition,
@@ -12,6 +13,7 @@ export interface ProcessOptions {
   readonly natives?: readonly NativeDefinition<NativeContext>[]
   readonly oneSync?: boolean
   readonly gameBuild?: number
+  readonly kvp?: KvpStore
 }
 
 /** A process with a clock the test controls and its console captured line by line. */
@@ -89,6 +91,7 @@ export async function createProcess(options: ProcessOptions = {}): Promise<TestP
       natives: options.natives ?? [],
       ...(options.oneSync === undefined ? {} : { oneSync: options.oneSync }),
       ...(options.gameBuild === undefined ? {} : { gameBuild: options.gameBuild }),
+      ...(options.kvp === undefined ? {} : { kvp: options.kvp }),
     }),
     time: 0,
     warnings,

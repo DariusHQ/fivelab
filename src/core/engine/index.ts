@@ -7,6 +7,7 @@ export {
   type ConstraintResult,
 } from './constraints.ts'
 export { NativeContext } from './context.ts'
+export { KvpStore } from './kvp.ts'
 export { ResourceManager, type ProcessOutput, type ResourceManagerOptions } from './manager.ts'
 export {
   ManifestError,
