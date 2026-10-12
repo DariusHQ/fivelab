@@ -10,6 +10,7 @@ export {
 } from './commands.ts'
 export { ConsoleContext, type ConsoleContextOptions } from './context.ts'
 export { namePattern } from './patterns.ts'
+export { addConvarPermissionCommands, ConvarPermissions } from './permissions.ts'
 export {
   addPrinterCommands,
   ChannelAction,

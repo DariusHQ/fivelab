@@ -1,7 +1,9 @@
 import {
   addAccessCommands,
+  addConvarPermissionCommands,
   addPrinterCommands,
   ConsoleContext,
+  ConvarPermissions,
   EVERYONE,
   Printer,
   Security,
@@ -97,6 +99,8 @@ export class ResourceManager {
    * console.
    */
   readonly console: ConsoleContext
+  /** On servers, which resources may read the console variables that are restricted to some. */
+  readonly convarPermissions: ConvarPermissions | undefined
   readonly natives = new NativeRegistry<NativeContext>()
   readonly events = new EventManager(this)
   /** What dependencies such as /server:5181 test, which only servers enforce. */
@@ -140,11 +144,14 @@ export class ResourceManager {
     // FiveM's security starts with this entry.
     this.security.addEntry('system.console', 'command', 'allow')
     if (server) {
+      this.convarPermissions = new ConvarPermissions()
+      addConvarPermissionCommands(this.defaultConsole, this.convarPermissions)
       this.console = new ConsoleContext({ ...consoleOptions, fallback: this.defaultConsole })
       this.#startServerConsole()
     } else {
       // FiveM's client lets its own code set what servers replicate, among others.
       this.security.addEntry('system.internal', 'builtin', 'allow')
+      this.convarPermissions = undefined
       this.console = this.defaultConsole
     }
     this.natives.register(

@@ -32,6 +32,16 @@ describe('The consoles of processes', () => {
     expect(take()).toEqual([])
   })
 
+  it('let servers restrict who reads console variables, from the default console', async () => {
+    const server = await createProcess()
+    expect(server.manager.defaultConsole.commands.has('add_convar_permission')).toBe(true)
+    run(server.manager, 'add_convar_permission a read secret')
+    expect(server.manager.convarPermissions?.mayRead('secret', 'b')).toBe(false)
+    const client = await createProcess({ side: 'client' })
+    expect(client.manager.defaultConsole.commands.has('add_convar_permission')).toBe(false)
+    expect(client.manager.convarPermissions).toBeUndefined()
+  })
+
   it("give clients the entry of FiveM's client, and the default console", async () => {
     const { manager, take } = await createProcess({ side: 'client' })
     run(manager, 'list_aces')
