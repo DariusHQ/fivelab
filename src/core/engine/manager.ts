@@ -18,12 +18,14 @@ import {
 } from '../natives/index.ts'
 import { CLOCK_START, type ScriptRuntime, type StackBoundaries } from '../scripting/runtime.ts'
 import { ConsoleBuffer } from './buffer.ts'
+import { addConfigCommands } from './config.ts'
 import { addResourceCommands } from './control.ts'
 import { Constraints, DEFAULT_GAME_BUILD, FIVEM_BUILD, parseGameBuild } from './constraints.ts'
 import type { NativeContext } from './context.ts'
 import { Dependencies } from './dependencies.ts'
 import { EventManager } from './events.ts'
 import { MemoryFileSystem, type FileSystem } from './files.ts'
+import { normalizePath } from './glob.ts'
 import { INT32_MIN } from './hook.ts'
 import { KvpStore } from './kvp.ts'
 import { atoi, compareUtf8, strtoull } from '../libc.ts'
@@ -179,6 +181,7 @@ export class ResourceManager {
       addConvarPermissionCommands(this.defaultConsole, this.convarPermissions)
       this.console = new ConsoleContext({ ...consoleOptions, fallback: this.defaultConsole })
       this.#scanner = new ResourceScanner(this)
+      addConfigCommands(this)
       addResourceCommands(this)
       this.#startServerConsole()
     } else {
@@ -260,6 +263,15 @@ export class ResourceManager {
   scanResources(): void {
     if (this.#scanner === undefined) throw new Error('Only servers scan for resources')
     this.#scanner.scan()
+  }
+
+  /**
+   * The bytes of the file at `path`, as FiveM's server opens the files its
+   * commands name: @name/ is the directory of the resource that scans found
+   * by the name, and other paths are those of the files of the process.
+   */
+  readFile(path: string): Uint8Array | undefined {
+    return this.files.read(normalizePath(this.#scanner?.resolve(path) ?? path))
   }
 
   /**

@@ -2,7 +2,7 @@ import { VariableFlags, type Variable } from '../console/index.ts'
 import type { ResourceManager } from './manager.ts'
 import { isFxVersionAtLeast, isManifestVersionAtLeast, ManifestError } from './manifest.ts'
 import { pack } from './msgpack.ts'
-import { isCategory } from './resource.ts'
+import { isCategory, type Resource } from './resource.ts'
 
 /** The directory that FiveM's server finds resources in, relative to the one it runs in. */
 const RESOURCES = 'resources'
@@ -22,6 +22,8 @@ interface ScanResult {
   newResources: number
   updatedResources: number
   reloadedResources: number
+  /** The resources that were new and loaded. */
+  readonly resources: Resource[]
   readonly messages: ScanMessage[]
 }
 
@@ -33,6 +35,11 @@ export class ResourceScanner {
   readonly #manager: ResourceManager
   /** Where the scans found each resource, by its name. */
   readonly #paths = new Map<string, string>()
+  /**
+   * The directories of the resources that scans found, by the prefixes
+   * that FiveM mounts them at for its file system, such as @name/.
+   */
+  readonly #mounts = new Map<string, string>()
   /** resources_useSystemChat, which FiveM's server adds as it first scans. */
   #useSystemChat: Variable | undefined
 
@@ -63,6 +70,7 @@ export class ResourceScanner {
       newResources: 0,
       updatedResources: 0,
       reloadedResources: 0,
+      resources: [],
       messages: [],
     }
     // FiveM scans its system resources too, which FiveLab has none of.
@@ -99,7 +107,20 @@ export class ResourceScanner {
         `^3${counted(warnings, 'warning was', 'warnings were')} encountered.^7\n`,
       )
     }
+    for (const { name, path } of result.resources) this.#mounts.set(`@${name}/`, path)
     manager.events.trigger('onResourceListRefresh', pack([]))
+  }
+
+  /**
+   * The path that FiveM's server opens for `path`: for @name/ and what
+   * follows, that in the directory of the resource that scans found by the
+   * name, and otherwise `path` itself.
+   */
+  resolve(path: string): string {
+    for (const [prefix, directory] of this.#mounts) {
+      if (path.startsWith(prefix)) return `${directory}/${path.slice(prefix.length)}`
+    }
+    return path
   }
 
   /** Scans the directory at `root` and the categories in it, as FiveM's ServerResourceList does. */
@@ -166,6 +187,7 @@ export class ResourceScanner {
         let resource = manager.getResource(name, false)
         if (resource !== undefined && (this.#paths.get(name) ?? path) !== path) {
           resource.stop()
+          this.#mounts.delete(`@${name}/`)
           manager.removeResource(resource)
           resource = undefined
         }
@@ -182,7 +204,7 @@ export class ResourceScanner {
         changed.add(name)
         this.#paths.set(name, path)
         try {
-          manager.addResource(name, { path })
+          result.resources.push(manager.addResource(name, { path }))
         } catch (error) {
           if (!(error instanceof ManifestError)) throw error
           if (error.missing) {
