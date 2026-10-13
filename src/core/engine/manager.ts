@@ -31,6 +31,7 @@ import { KvpStore } from './kvp.ts'
 import { atoi, compareUtf8, strtoull } from '../libc.ts'
 import { isFxVersionAtLeast } from './manifest.ts'
 import { arrayLength } from './msgpack.ts'
+import { addPermissionCommands, FilesystemPermissions } from './permissions.ts'
 import { engineNatives } from './natives/index.ts'
 import { Resource, type ResourceDefinition } from './resource.ts'
 import { ResourceScanner } from './scan.ts'
@@ -116,6 +117,8 @@ export class ResourceManager {
   readonly console: ConsoleContext
   /** On servers, which resources may read the console variables that are restricted to some. */
   readonly convarPermissions: ConvarPermissions | undefined
+  /** On servers, which resources may write the files of others. */
+  readonly filesystemPermissions: FilesystemPermissions | undefined
   /** On servers, what they keep of what their console prints for scripts. */
   readonly consoleBuffer: ConsoleBuffer | undefined
   /** The KVP of the resources, in the database of the process. */
@@ -179,6 +182,8 @@ export class ResourceManager {
     if (server) {
       this.convarPermissions = new ConvarPermissions()
       addConvarPermissionCommands(this.defaultConsole, this.convarPermissions)
+      this.filesystemPermissions = new FilesystemPermissions()
+      addPermissionCommands(this, this.filesystemPermissions)
       this.console = new ConsoleContext({ ...consoleOptions, fallback: this.defaultConsole })
       this.#scanner = new ResourceScanner(this)
       addConfigCommands(this)
@@ -188,6 +193,7 @@ export class ResourceManager {
       // FiveM's client lets its own code set what servers replicate, among others.
       this.security.addEntry('system.internal', 'builtin', 'allow')
       this.convarPermissions = undefined
+      this.filesystemPermissions = undefined
       this.#scanner = undefined
       this.console = this.defaultConsole
       // FiveM's NUI console listens to the variables first, for its main menu, which FiveLab has not.

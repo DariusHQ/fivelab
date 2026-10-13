@@ -157,12 +157,15 @@ function loadFile(resource: Resource, fileName: string): Uint8Array | undefined 
 
 /**
  * Whether FiveM lets the current resource write `fileName` in `resource`:
- * a name with more than slashes in it, in the current resource itself,
- * unless add_filesystem_permission lets it write in the other.
+ * a name with more than slashes in it, in the current resource itself, or
+ * in another that add_filesystem_permission let it write in.
  */
 function mayWrite(ctx: NativeContext, resource: Resource, fileName: string): boolean {
   if (fileName.split(/[\\/]/).every((part) => part === '')) return false
-  if (ctx.manager.currentResource?.name === resource.name) return true
+  const { currentResource, filesystemPermissions } = ctx.manager
+  const current = currentResource?.name ?? ''
+  if (current === resource.name) return true
+  if (filesystemPermissions?.mayWrite(current, resource.name)) return true
   ctx.diagnose(
     `SaveResourceFile cannot write ${fileName} in ${resource.name}: FiveM lets resources write the files of others only with add_filesystem_permission.`,
   )
