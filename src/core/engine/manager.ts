@@ -35,6 +35,7 @@ import { addPermissionCommands, FilesystemPermissions } from './permissions.ts'
 import { engineNatives } from './natives/index.ts'
 import { Resource, type ResourceDefinition } from './resource.ts'
 import { ResourceScanner } from './scan.ts'
+import type { Player, Session } from './session.ts'
 
 /** Where a process writes what it reports. */
 export interface ProcessOutput {
@@ -151,6 +152,8 @@ export class ResourceManager {
   /** The state of the rand() that ids of runtimes come from, which starts at 1 on Windows. */
   #rand = 1
   #configured = false
+  #session: Session | undefined
+  #player: Player | undefined
 
   constructor(options: ResourceManagerOptions) {
     this.side = options.side
@@ -305,6 +308,22 @@ export class ResourceManager {
       .filter((resource) => resource.categories.includes(category))
       .map((resource) => resource.name)
       .sort(compareUtf8)
+  }
+
+  /** The session the process is in: on servers, the one they host, and on clients, the one they connected to. */
+  get session(): Session | undefined {
+    return this.#session
+  }
+
+  /** On clients, the player that their server knows them as, once they connected to it. */
+  get player(): Player | undefined {
+    return this.#player
+  }
+
+  /** @internal Called by the session that the process joins. */
+  joinSession(session: Session, player?: Player): void {
+    this.#session = session
+    this.#player = player
   }
 
   /**

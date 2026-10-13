@@ -18,3 +18,4 @@ export {
 } from './manifest.ts'
 export { engineNatives } from './natives/index.ts'
 export { Resource, type ResourceDefinition, type ResourceState } from './resource.ts'
+export { netIdAfter, Player, SERVER_NET_ID, Session } from './session.ts'
