@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import {
   clientNativesFile,
+  isManifestVersionAtLeast,
   ManifestError,
   pluralEntries,
   readManifest,
+  sameEntries,
   type MetadataEntry,
 } from '../../src/core/engine/manifest.ts'
 import { createRuntime, thrown } from '../lua/helpers.ts'
@@ -162,6 +164,12 @@ is_cfxv2 'false'`,
       "\t[C]: in function 'error'",
       "\ta/fxmanifest.lua:2: in local 'chunk'",
     ])
+    // FiveM keeps what the manifest added before it failed, but not is_cfxv2.
+    expect((error as ManifestError).entries.map(([key, value]) => [key, value])).toEqual([
+      ['fx_version', 'cerulean'],
+    ])
+    const parsed = thrown(() => readManifest(lua, 'resources/a', () => `fx_version 'a' =`))
+    expect((parsed as ManifestError).entries).toEqual([])
   })
 
   it('fails on values that are not strings or numbers, as luaL_checkstring does', () => {
@@ -292,5 +300,105 @@ describe('clientNativesFile', () => {
         ['resource_manifest_version', '44febabe-d386-4d18-afbe-5e627f4af937'],
       ]),
     ).toBe('natives_universal.lua')
+  })
+})
+
+describe('isManifestVersionAtLeast', () => {
+  const versions = (version?: string): MetadataEntry[] =>
+    version === undefined ? [] : [['resource_manifest_version', version]]
+  const v1 = '44febabe-d386-4d18-afbe-5e627f4af937'
+
+  it("compares the first resource_manifest_version in FiveM's order", () => {
+    expect(isManifestVersionAtLeast(versions(v1), v1)).toBe(true)
+    expect(isManifestVersionAtLeast(versions('05CFA83C-A124-4CFA-A768-C24A5811D8F9'), v1)).toBe(
+      true,
+    )
+    expect(isManifestVersionAtLeast(versions('f15e72ec-3972-4fe4-9c7d-afc5394ae207'), v1)).toBe(
+      false,
+    )
+    expect(
+      isManifestVersionAtLeast(
+        [...versions('77731fab-63ca-442c-a67b-abc70f28dfa5'), ...versions(v1)],
+        v1,
+      ),
+    ).toBe(false)
+  })
+
+  it('takes no version as the first, and versions FiveM does not know as none', () => {
+    expect(isManifestVersionAtLeast(versions(), '00000000-0000-0000-0000-000000000000')).toBe(true)
+    expect(isManifestVersionAtLeast(versions(), v1)).toBe(false)
+    expect(
+      isManifestVersionAtLeast(versions('nonsense'), '00000000-0000-0000-0000-000000000000'),
+    ).toBe(true)
+    expect(
+      isManifestVersionAtLeast(
+        versions('ffffffff-d386-4d18-afbe-5e627f4af937'),
+        '00000000-0000-0000-0000-000000000000',
+      ),
+    ).toBe(false)
+  })
+})
+
+describe('sameEntries', () => {
+  it('compares entries by key, with the values of each key in order', () => {
+    expect(
+      sameEntries(
+        [
+          ['a', '1'],
+          ['b', '2'],
+          ['a', '3'],
+        ],
+        [
+          ['b', '2'],
+          ['a', '1'],
+          ['a', '3'],
+        ],
+      ),
+    ).toBe(true)
+    expect(
+      sameEntries(
+        [
+          ['a', '1'],
+          ['a', '3'],
+        ],
+        [
+          ['a', '3'],
+          ['a', '1'],
+        ],
+      ),
+    ).toBe(false)
+    expect(sameEntries([['a', '1']], [['a', '2']])).toBe(false)
+    expect(sameEntries([['a', '1']], [['b', '1']])).toBe(false)
+    expect(
+      sameEntries(
+        [['a', '1']],
+        [
+          ['a', '1'],
+          ['a', '1'],
+        ],
+      ),
+    ).toBe(false)
+    expect(
+      sameEntries(
+        [
+          ['a', '1'],
+          ['a', '1'],
+        ],
+        [['a', '1']],
+      ),
+    ).toBe(false)
+  })
+
+  it('leaves out the entries of keys that end in _extra, and where entries were defined', () => {
+    expect(
+      sameEntries(
+        [
+          ['file', 'x', { file: 'a/fxmanifest.lua', line: 1 }],
+          ['file_extra', '{}'],
+        ],
+        [['file', 'x', { file: 'a/fxmanifest.lua', line: 9 }]],
+      ),
+    ).toBe(true)
+    expect(sameEntries([['extra', '1']], [])).toBe(false)
   })
 })

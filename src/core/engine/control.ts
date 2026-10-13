@@ -15,6 +15,8 @@ const CHANNEL = 'citizen-server-impl'
  * - ensure starts a resource, or the resources of a category until one it
  *   does not find, and restarts those that are started once the server
  *   ended its initial configuration.
+ * - refresh scans the resources directory for resources; see
+ *   ResourceManager.scanResources.
  *
  * restart and ensure run start and stop as commands of their own, which the
  * code that runs them must be allowed to run too.
@@ -86,4 +88,5 @@ export function addResourceCommands(manager: ResourceManager): void {
       if (!ensure(resource)) break
     }
   })
+  commands.add('refresh', [], () => manager.scanResources())
 }

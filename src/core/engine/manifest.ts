@@ -1,3 +1,4 @@
+import { compareUtf8 } from '../libc.ts'
 import { LuaError, LuaLib, LuaRef, type LuaRuntime } from '../lua/index.ts'
 import manifestSource from './lua/manifest.lua?raw'
 
@@ -16,10 +17,13 @@ export class ManifestError extends Error {
   override readonly name = 'ManifestError'
   /** Whether the resource has no manifest at all, which FiveM's server only warns about. */
   readonly missing: boolean
+  /** The entries that the manifest added before it failed, which FiveM keeps. */
+  readonly entries: readonly MetadataEntry[]
 
-  constructor(message: string, missing = false) {
+  constructor(message: string, missing = false, entries: readonly MetadataEntry[] = []) {
     super(message)
     this.missing = missing
+    this.entries = entries
   }
 }
 
@@ -108,6 +112,39 @@ function parseManifestVersion(value: string): string {
 }
 
 /**
+ * Whether a manifest's resource_manifest_version, its first, is `version`
+ * or later, as FiveM compares them. Like FiveM, it takes versions that it
+ * does not know, at -1, as earlier than any, and none as the first.
+ */
+export function isManifestVersionAtLeast(
+  metadata: readonly MetadataEntry[],
+  version: string,
+): boolean {
+  const value = metadata.find(([key]) => key === 'resource_manifest_version')?.[1]
+  const own = MANIFEST_VERSIONS.indexOf(parseManifestVersion(value ?? ''))
+  return own >= MANIFEST_VERSIONS.indexOf(version)
+}
+
+/**
+ * Whether two manifests have the same entries as FiveM's server compares
+ * them when it refreshes resources: by key, in the order of its multimap of
+ * entries, with the values of each key in order, but without the entries
+ * of keys that end in _extra, and wherever entries were defined.
+ */
+export function sameEntries(a: readonly MetadataEntry[], b: readonly MetadataEntry[]): boolean {
+  const comparable = (metadata: readonly MetadataEntry[]) =>
+    metadata
+      .filter(([key]) => !key.endsWith('_extra'))
+      .sort(([x], [y]) => compareUtf8(x, y))
+      .map(([key, value]) => [key, value])
+  const [first, second] = [comparable(a), comparable(b)]
+  return (
+    first.length === second.length &&
+    first.every(([key, value], i) => key === second[i]![0] && value === second[i]![1])
+  )
+}
+
+/**
  * The file of natives that FiveM's GTA V client gives the scripts of a
  * resource, by its manifest: natives_universal.lua for an fx_version, its
  * first, of adamant or later, and otherwise the newest whose version its
@@ -177,6 +214,8 @@ export function readManifest(
         throw new ManifestError(
           `Could not execute resource metadata file ${filename}: ${messageOf(error)}` +
             (traceback === undefined ? '' : `\n${traceback}`),
+          false,
+          entries,
         )
       } finally {
         chunk.release()

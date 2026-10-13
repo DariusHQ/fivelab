@@ -31,6 +31,7 @@ import { isFxVersionAtLeast } from './manifest.ts'
 import { arrayLength } from './msgpack.ts'
 import { engineNatives } from './natives/index.ts'
 import { Resource, type ResourceDefinition } from './resource.ts'
+import { ResourceScanner } from './scan.ts'
 
 /** Where a process writes what it reports. */
 export interface ProcessOutput {
@@ -124,6 +125,8 @@ export class ResourceManager {
   /** What dependencies such as /server:5181 test, which only servers enforce. */
   readonly constraints = new Constraints()
   readonly #dependencies = new Dependencies(this)
+  /** On servers, what finds the resources of their resources directory. */
+  readonly #scanner: ResourceScanner | undefined
   /** The calls into runtimes that are running, the innermost last. */
   readonly #calls: RuntimeCall[] = []
   /**
@@ -175,12 +178,14 @@ export class ResourceManager {
       this.convarPermissions = new ConvarPermissions()
       addConvarPermissionCommands(this.defaultConsole, this.convarPermissions)
       this.console = new ConsoleContext({ ...consoleOptions, fallback: this.defaultConsole })
+      this.#scanner = new ResourceScanner(this)
       addResourceCommands(this)
       this.#startServerConsole()
     } else {
       // FiveM's client lets its own code set what servers replicate, among others.
       this.security.addEntry('system.internal', 'builtin', 'allow')
       this.convarPermissions = undefined
+      this.#scanner = undefined
       this.console = this.defaultConsole
       // FiveM's NUI console listens to the variables first, for its main menu, which FiveLab has not.
       this.console.variables.watch(() => {})
@@ -234,6 +239,27 @@ export class ResourceManager {
       else providers.push(resource)
     }
     return resource
+  }
+
+  /**
+   * Removes a resource, as FiveM's server does with one it finds elsewhere
+   * than before: it stops it, and leaves it uninitialized. Like FiveM, it
+   * still finds the resource by the names that it provides.
+   */
+  removeResource(resource: Resource): void {
+    resource.stop()
+    resource.destroy()
+    this.#resources.delete(resource.name)
+  }
+
+  /**
+   * Scans the resources directory of a server for resources, as FiveM's
+   * server does as it starts, before it runs its config, and when its
+   * refresh command runs; see ResourceScanner.scan.
+   */
+  scanResources(): void {
+    if (this.#scanner === undefined) throw new Error('Only servers scan for resources')
+    this.#scanner.scan()
   }
 
   /**

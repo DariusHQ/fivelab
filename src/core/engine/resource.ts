@@ -6,8 +6,10 @@ import { Hook } from './hook.ts'
 import type { ResourceManager } from './manager.ts'
 import {
   clientNativesFile,
+  ManifestError,
   pluralEntries,
   readManifest,
+  sameEntries,
   type MetadataEntry,
   type MetadataLocation,
 } from './manifest.ts'
@@ -62,7 +64,6 @@ export class Resource {
    * scans them.
    */
   readonly categories: readonly string[]
-  readonly metadata: readonly MetadataEntry[]
   /**
    * The events the resource's scripts registered handlers for. FiveM keeps
    * them for as long as the resource exists, across restarts.
@@ -76,6 +77,7 @@ export class Resource {
   readonly onStop = new Hook()
   /** The path of the resource's directory in the files of the process, normalized. */
   readonly #root: string
+  #metadata: readonly MetadataEntry[]
   #state: ResourceState = 'stopped'
   #runtime: ScriptRuntime | null = null
   #context: NativeContext | null = null
@@ -99,19 +101,10 @@ export class Resource {
     // The resource reads the manifest of the files it is given before it adds them.
     const given = definition.files === undefined ? undefined : this.#filesOf(definition.files)
     const source = given ?? manager.files
-    this.metadata =
+    this.#metadata =
       definition.metadata ??
       readManifest(manager.lua, this.path, (path) => source.read(`${this.#root}/${path}`))
-    for (const [[key, value, location], singular] of pluralEntries(this.metadata)) {
-      const where =
-        location === undefined
-          ? ''
-          : ` (defined in ${location.file.slice(location.file.lastIndexOf('/') + 1)}:${location.line})`
-      manager.output.diagnose(
-        name,
-        `${name}'s manifest adds ${key} \`${value}\`${where}, which FiveM does not read: ${key} drops its final s only for tables, so FiveM reads what ${singular} '...' and ${key} { '...' } add, but not ${key} '...'.`,
-      )
-    }
+    this.#diagnosePlurals()
     if (given !== undefined) this.#addFiles(given)
     // FiveM's event component connects to a resource's hooks before its scripting component does.
     manager.events.attach(this)
@@ -121,6 +114,43 @@ export class Resource {
 
   get state(): ResourceState {
     return this.#state
+  }
+
+  /** The entries of the resource's manifest, in order. */
+  get metadata(): readonly MetadataEntry[] {
+    return this.#metadata
+  }
+
+  /**
+   * Reads the manifest of the resource again, from the directory at `path`,
+   * as FiveM's server does when it refreshes resources, and returns whether
+   * its entries changed, as sameEntries compares them. When the manifest no
+   * longer loads, the resource keeps the entries it added before it failed,
+   * as in FiveM.
+   */
+  reloadMetadata(path: string): boolean {
+    const { files, lua, output } = this.manager
+    const root = normalizePath(path)
+    let metadata: readonly MetadataEntry[]
+    try {
+      metadata = readManifest(lua, path, (file) => files.read(`${root}/${file}`))
+    } catch (error) {
+      if (!(error instanceof ManifestError)) throw error
+      output.diagnose(
+        this.name,
+        `The manifest of ${this.name} no longer loads, and FiveM keeps the entries it added before it failed without saying so: ${error.message}`,
+      )
+      metadata = error.entries
+    }
+    const changed = !sameEntries(this.#metadata, metadata)
+    this.#metadata = metadata
+    if (changed) this.#diagnosePlurals()
+    return changed
+  }
+
+  /** @internal Leaves the resource uninitialized, as FiveM does with the resources it removes. */
+  destroy(): void {
+    this.#state = 'uninitialized'
   }
 
   /** The Lua runtime of the started resource, or null if it has none. */
@@ -225,6 +255,20 @@ export class Resource {
           if (this.#retired.delete(runtime)) this.#close(runtime)
         }
       }
+    }
+  }
+
+  /** Says which entries of the resource's manifest have plural names, which FiveM does not read. */
+  #diagnosePlurals(): void {
+    for (const [[key, value, location], singular] of pluralEntries(this.#metadata)) {
+      const where =
+        location === undefined
+          ? ''
+          : ` (defined in ${location.file.slice(location.file.lastIndexOf('/') + 1)}:${location.line})`
+      this.manager.output.diagnose(
+        this.name,
+        `${this.name}'s manifest adds ${key} \`${value}\`${where}, which FiveM does not read: ${key} drops its final s only for tables, so FiveM reads what ${singular} '...' and ${key} { '...' } add, but not ${key} '...'.`,
+      )
     }
   }
 
