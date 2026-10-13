@@ -126,6 +126,8 @@ export class ResourceManager {
   readonly kvp: KvpStore
   /** The files of the process, which its resources are in. */
   readonly files: FileSystem
+  /** On servers, whether OneSync is on. */
+  readonly oneSync: boolean
   readonly natives = new NativeRegistry<NativeContext>()
   readonly events = new EventManager(this)
   /** What dependencies such as /server:5181 test, which only servers enforce. */
@@ -162,6 +164,7 @@ export class ResourceManager {
     this.#time = options.time
     this.kvp = options.kvp ?? new KvpStore()
     this.files = options.files ?? new MemoryFileSystem()
+    this.oneSync = this.side === 'server' && (options.oneSync ?? true)
     this.printer = new Printer((channel, text) => this.output.write(channel, text))
     const server = this.side === 'server'
     if (server) {
@@ -208,7 +211,7 @@ export class ResourceManager {
       ...(options.natives ?? []),
     )
     if (this.side === 'server') {
-      this.#registerConstraints(options.oneSync ?? true, options.gameBuild ?? DEFAULT_GAME_BUILD)
+      this.#registerConstraints(this.oneSync, options.gameBuild ?? DEFAULT_GAME_BUILD)
     }
   }
 
@@ -326,6 +329,12 @@ export class ResourceManager {
     this.#player = player
   }
 
+  /** @internal Called by the session that dropped the player of a client. */
+  leaveSession(): void {
+    this.#session = undefined
+    this.#player = undefined
+  }
+
   /**
    * Whether the server ended its initial configuration; see
    * endInitialConfiguration.
@@ -400,9 +409,11 @@ export class ResourceManager {
    * as the console, triggers the queued events, then resumes the threads
    * that are due in all runtimes. It takes the due threads of every runtime
    * before it resumes any, so that threads queued during the tick wait for
-   * the next one.
+   * the next one. A client tells its server it is there first, as FiveM's
+   * do with the packets they send every frame.
    */
   tick(): void {
+    this.#player?.touch()
     this.security.runAs('system.console', () => this.console.executeBuffer())
     this.events.tick()
     const ticking = this.#ticking.map((resource) => ({ resource, runtime: resource.runtime! }))

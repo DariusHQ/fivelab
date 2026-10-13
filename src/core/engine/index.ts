@@ -18,4 +18,13 @@ export {
 } from './manifest.ts'
 export { engineNatives } from './natives/index.ts'
 export { Resource, type ResourceDefinition, type ResourceState } from './resource.ts'
-export { netIdAfter, Player, SERVER_NET_ID, Session } from './session.ts'
+export {
+  CLIENT_DROP_RESOURCE,
+  DropReason,
+  netIdAfter,
+  Player,
+  SERVER_DROP_RESOURCE,
+  SERVER_NET_ID,
+  Session,
+  type PlayerIdentity,
+} from './session.ts'

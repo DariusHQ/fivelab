@@ -5,6 +5,7 @@ import { convarNatives } from './convars.ts'
 import { eventNatives } from './events.ts'
 import { kvpNatives } from './kvp.ts'
 import { networkNatives } from './network.ts'
+import { playerNatives } from './players.ts'
 import { refNatives } from './refs.ts'
 import { resourceNatives } from './resources.ts'
 import { scriptingNatives } from './scripting.ts'
@@ -20,5 +21,6 @@ export function engineNatives(side: Side): NativeDefinition<NativeContext>[] {
     ...convarNatives(side),
     ...kvpNatives(side),
     ...networkNatives(side),
+    ...playerNatives(side),
   ]
 }
