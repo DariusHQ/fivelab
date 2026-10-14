@@ -89,7 +89,11 @@ const sources: { file: string; flags: string[] }[] = [
   { file: `${vendor}/lua/onelua.c`, flags: ['-w'] },
   // lua-cmsgpack picks the byte order of vector components per platform and has
   // no Emscripten case. Its Windows branch packs them little-endian, like FiveM.
-  { file: `${vendor}/lua-cmsgpack/src/lua_cmsgpack.c`, flags: ['-w', '-D__WINDOWS__'] },
+  // It would take WebAssembly for a 32-bit Lua; see native/cmsgpack64.h.
+  {
+    file: `${vendor}/lua-cmsgpack/src/lua_cmsgpack.c`,
+    flags: ['-w', '-D__WINDOWS__', '-include', 'native/cmsgpack64.h'],
+  },
   // lua-rapidjson derives from std::unary_function, which libc++ drops in C++17.
   {
     file: `${vendor}/lua-rapidjson/src/lua_rapidjson.cpp`,

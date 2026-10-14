@@ -50,6 +50,9 @@ differences:
   exception handling, which also carries them through JavaScript frames.
 - lua-cmsgpack is built with `__WINDOWS__`: it has no Emscripten case for the byte order
   of vector components, and its Windows case packs them little-endian, as FiveM does.
+- lua-cmsgpack is built with `cmsgpack64.h` included first. It takes a target with 32-bit
+  pointers for a 32-bit Lua and would pack integers in 32 bits and floats as singles, where
+  FiveM's 64-bit builds pack them in full.
 - lua-rapidjson is built with `_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION`, since
   libc++ removed `std::unary_function` in C++17 and MSVC still provides it.
 

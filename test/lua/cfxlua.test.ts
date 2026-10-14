@@ -124,6 +124,31 @@ describe('CfxLua', () => {
     expect(hex).toBe('d714' + '0000803f' + '00000040')
   })
 
+  it('packs integers and floats in 64 bits, as the 64-bit builds of FiveM do', async () => {
+    const lua = await fivem()
+    const hex = (value: string) =>
+      lua.run(
+        `return (msgpack.pack(${value}):gsub('.', function(c)
+           return string.format('%02x', c:byte())
+         end))`,
+        '=test',
+      )[0]
+    expect(['0.1', '1 << 40', '-(1 << 40)', '2147483648', '-2147483649'].map(hex)).toEqual([
+      'cb3fb999999999999a',
+      'cf0000010000000000',
+      'd3ffffff0000000000',
+      'ce80000000',
+      'd3ffffffff7fffffff',
+    ])
+    expect(
+      lua.run(
+        `return msgpack.getoption('full64bits'), msgpack.getoption('small_lua'),
+                msgpack.unpack(msgpack.pack(0.1)) == 0.1`,
+        '=test',
+      ),
+    ).toEqual([true, false, true])
+  })
+
   it('opens glm through require and sets the global', async () => {
     const lua = await fivem()
     expect(
