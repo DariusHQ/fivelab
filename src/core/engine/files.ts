@@ -30,6 +30,14 @@ export interface FileSystem {
   write(path: string, data: Uint8Array): boolean
   /** Creates the directory at `path`, and those it is in, unless they are there. Throws if a file is. */
   makeDirectory(path: string): void
+  /** Removes the file at `path`, and returns whether there was one, as FiveM removes files but no directories. */
+  remove(path: string): boolean
+  /**
+   * Moves the file or the directory at `from` to `to`, and returns whether
+   * it could: not onto what is at `to` already, nor into a directory that
+   * is not there.
+   */
+  rename(from: string, to: string): boolean
 }
 
 const encoder = new TextEncoder()
@@ -77,6 +85,33 @@ export class MemoryFileSystem implements FileSystem {
     this.makeDirectory(parent)
     this.#directories.get(parent)!.set(nameOf(path), true)
     this.#directories.set(path, new Map())
+  }
+
+  remove(path: string): boolean {
+    if (!this.#files.delete(path)) return false
+    this.#directories.get(parentOf(path))!.delete(nameOf(path))
+    return true
+  }
+
+  rename(from: string, to: string): boolean {
+    const isFile = this.#files.has(from)
+    if (!isFile && !this.#directories.has(from)) return false
+    const target = this.#directories.get(parentOf(to))
+    if (target === undefined || this.#files.has(to) || this.#directories.has(to)) return false
+    // A directory does not move into itself.
+    if (!isFile && to.startsWith(`${from}/`)) return false
+    this.#directories.get(parentOf(from))!.delete(nameOf(from))
+    target.set(nameOf(to), !isFile)
+    const moved = (path: string) => path === from || path.startsWith(`${from}/`)
+    const renamed = (path: string) => to + path.slice(from.length)
+    for (const map of [this.#files, this.#directories] as Map<string, unknown>[]) {
+      for (const [path, value] of [...map]) {
+        if (!moved(path)) continue
+        map.delete(path)
+        map.set(renamed(path), value)
+      }
+    }
+    return true
   }
 }
 

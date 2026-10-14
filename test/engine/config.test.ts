@@ -116,6 +116,8 @@ describe('exec', () => {
       read: (path) => files.read(path),
       write: (path, data) => files.write(path, data),
       makeDirectory: (path) => files.makeDirectory(path),
+      remove: (path) => files.remove(path),
+      rename: (from, to) => files.rename(from, to),
     }
     const proc = await createProcess({ files: swappable })
     proc.manager.scanResources()
