@@ -42,12 +42,17 @@ export interface CfxLuaExports {
   fl_tonumber(L: Ptr, idx: number): number
   fl_tointeger64(L: Ptr, idx: number): bigint
   fl_isinteger(L: Ptr, idx: number): number
+  fl_isintegral(L: Ptr, idx: number): number
+  fl_isnumber(L: Ptr, idx: number): number
   fl_tolstring(L: Ptr, idx: number, len: Ptr): Ptr
   fl_tovector(L: Ptr, idx: number, out: Ptr): number
   fl_tostring(L: Ptr, idx: number): number
 
   fl_rawget(L: Ptr, idx: number): number
   fl_rawset(L: Ptr, idx: number): void
+  fl_gettable(L: Ptr, idx: number): number
+  fl_createtable(L: Ptr, narr: number, nrec: number): void
+  fl_setlib(L: Ptr): void
   fl_ref(L: Ptr): number
   fl_unref(L: Ptr, ref: number): void
   fl_getref(L: Ptr, ref: number): number

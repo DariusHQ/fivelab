@@ -120,6 +120,105 @@ return select(2, pcall(function() second(1) end)),
     ])
   })
 
+  it('read arguments as lua_tointegerx, lua_isnumber, lua_tolstring and lua_toboolean do', async () => {
+    const lua = (await createRuntime()).newState()
+    const seen: unknown[][] = []
+    lua.setGlobal(
+      'host',
+      lua.hostFunction((args) => {
+        for (let i = 1; i <= args.count + 1; i++) {
+          const bytes = args.stringBytes(i)
+          seen.push([
+            args.isIntegral(i),
+            args.isNumber(i),
+            bytes === null ? null : new TextDecoder().decode(bytes),
+            args.boolean(i),
+            args.typeName(i),
+          ])
+        }
+      }),
+    )
+    lua.run(`host(1, 1.5, '2', ' 0x10 ', '2.5', 'x', nil, false, {})`, '=test')
+    expect(seen).toEqual([
+      // Numbers turn into strings in place, as luaL_checkstring turns them.
+      [true, true, '1', true, 'string'],
+      [false, true, '1.5', true, 'string'],
+      [true, true, '2', true, 'string'],
+      [true, true, ' 0x10 ', true, 'string'],
+      [false, true, '2.5', true, 'string'],
+      [false, false, 'x', true, 'string'],
+      [false, false, null, false, 'nil'],
+      [false, false, null, false, 'boolean'],
+      [false, false, null, true, 'table'],
+      [false, false, null, false, 'no value'],
+    ])
+  })
+
+  it('read fields through metamethods, whose errors reach the script', async () => {
+    const lua = (await createRuntime()).newState()
+    lua.setGlobal(
+      'field',
+      lua.hostFunction((args) =>
+        args.withField(1, 'x', (at) => [args.get(at), args.isIntegral(at), args.integer(at)]),
+      ),
+    )
+    expect(
+      lua.run(
+        `local plain = { x = '12' }
+local indexed = setmetatable({}, { __index = function(_, key) return key .. '!' end })
+local failing = setmetatable({}, { __index = function() error('no x') end })
+local a, b, c = field(plain)
+local d = field(indexed)
+return a, b, c, d, select('#', field(plain)), select(2, pcall(field, failing))`,
+        '=test',
+      ),
+    ).toEqual(['12', true, 12, 'x!', 3, 'test:3: no x'])
+  })
+
+  it('leave no field on the stack, however many they read', async () => {
+    const lua = (await createRuntime()).newState()
+    lua.setGlobal(
+      'sum',
+      lua.hostFunction((args) => {
+        let sum = 0
+        for (let i = 0; i < 1000; i++)
+          sum += Number(args.withField(1, 'x', (at) => args.integer(at)))
+        return [sum, args.type(2)]
+      }),
+    )
+    expect(lua.run(`return sum({ x = 2 })`, '=test')).toEqual([2000, -1])
+  })
+
+  it('make tables of fields in their order, and load libraries as luaL_requiref does', async () => {
+    const lua = (await createRuntime()).newState()
+    lua.setGlobal('require', lua.requireFunction())
+    lua.setGlobal(
+      'make',
+      lua.hostFunction(() =>
+        lua.createTable([
+          ['b', 1],
+          ['a', 'two'],
+        ]),
+      ),
+    )
+    const library = lua.createTable([
+      [
+        'check',
+        lua.hostFunction(() => {
+          throw new LuaArgumentError(1, 'number expected, got no value')
+        }),
+      ],
+    ])
+    lua.setLibrary('mine', library)
+    expect(
+      lua.run(
+        `local t = make()
+return t.b, t.a, require('mine') == mine, select(2, pcall(mine.check))`,
+        '=test',
+      ),
+    ).toEqual([1, 'two', true, "bad argument #1 to 'mine.check' (number expected, got no value)"])
+  })
+
   it('can call back into their own state on the calling thread', async () => {
     const lua = (await createRuntime()).newState()
     const [inner] = lua.run(

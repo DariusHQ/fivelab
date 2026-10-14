@@ -998,6 +998,18 @@ EMSCRIPTEN_KEEPALIVE int fl_isinteger(lua_State *L, int idx) {
   return lua_isinteger(L, idx);
 }
 
+/* Whether the value converts to an integer, as lua_tointegerx tells. */
+EMSCRIPTEN_KEEPALIVE int fl_isintegral(lua_State *L, int idx) {
+  int isnum = 0;
+  lua_tointegerx(L, idx, &isnum);
+  return isnum;
+}
+
+/* Whether the value is a number or a string that converts to one. */
+EMSCRIPTEN_KEEPALIVE int fl_isnumber(lua_State *L, int idx) {
+  return lua_isnumber(L, idx);
+}
+
 /* Converts numbers in place, like lua_tolstring. */
 EMSCRIPTEN_KEEPALIVE const char *fl_tolstring(lua_State *L, int idx, size_t *len) {
   return lua_tolstring(L, idx, len);
@@ -1049,6 +1061,35 @@ EMSCRIPTEN_KEEPALIVE int fl_tostring(lua_State *L, int idx) {
 /* Replaces the key on top with its value in the table at `idx`, without metamethods. */
 EMSCRIPTEN_KEEPALIVE int fl_rawget(lua_State *L, int idx) {
   return lua_rawget(L, idx);
+}
+
+/*
+** Replaces the key on top with its value in the value at `idx`, with its
+** metamethods, as lua_getfield reads fields. Only host calls use it, whose
+** Lua frame catches what the metamethods raise.
+*/
+EMSCRIPTEN_KEEPALIVE int fl_gettable(lua_State *L, int idx) {
+  return lua_gettable(L, idx);
+}
+
+/* Pushes a new table with room for `narr` items and `nrec` fields. */
+EMSCRIPTEN_KEEPALIVE void fl_createtable(lua_State *L, int narr, int nrec) {
+  lua_createtable(L, narr, nrec);
+}
+
+/*
+** Pops a library and its name, which it loads as luaL_requiref does with a
+** global: in the table of loaded modules, which require and the names of
+** functions in errors read, and as the global of its name.
+*/
+EMSCRIPTEN_KEEPALIVE void fl_setlib(lua_State *L) {
+  const char *name = lua_tostring(L, -2);
+  luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+  lua_pushvalue(L, -2);
+  lua_setfield(L, -2, name);
+  lua_pop(L, 1);
+  lua_setglobal(L, name);
+  lua_pop(L, 1);
 }
 
 /* Pops a key and a value into the table at `idx`, without metamethods. */
