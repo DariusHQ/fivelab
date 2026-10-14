@@ -16,9 +16,9 @@ function playerOf(ctx: NativeContext, playerSrc: string | null): Player | undefi
   return ctx.manager.session?.player(atoi(checkArgument(playerSrc, 0)))
 }
 
-/** The value at `index` of a list of a player, as FiveM's natives of players read them. */
+/** The value at `index` of a list of a player, or none out of it, as FiveM's natives of players read them. */
 function at(list: readonly string[], index: number): string | null {
-  return index < 0 || index >= list.length ? null : list[index]!
+  return list[index] ?? null
 }
 
 /** Natives of the players of servers, which only servers have. */
@@ -146,7 +146,7 @@ export function playerNatives(side: Side): NativeDefinition<NativeContext>[] {
     defineNative(
       { name: 'GET_PLAYER_FROM_INDEX', result: 'char*', params: ['int index'] },
       (_ctx: NativeContext, index) => {
-        const player = index < 0 || index >= listed.length ? undefined : listed[index]!
+        const player = listed[index]
         // The list keeps players that dropped since, which FiveM finds no more.
         if (player === undefined || player.session.player(player.netId) !== player) return null
         return String(player.netId)

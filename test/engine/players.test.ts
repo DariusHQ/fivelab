@@ -62,7 +62,7 @@ describe('Players', () => {
 print(GetNumPlayerIdentifiers(1), table.concat(GetPlayerIdentifiers(1), ','))
 print(GetPlayerIdentifier(1, -1), GetPlayerIdentifier(1, 3))
 print(GetPlayerIdentifierByType(1, 'license'), GetPlayerIdentifierByType(1, 'license:'))
-print(GetPlayerIdentifierByType(1, 'ip'), GetPlayerIdentifierByType(1, 'discord'))
+print(GetPlayerIdentifierByType(1, 'ip'), GetPlayerIdentifierByType(1, 'discord'), GetPlayerIdentifierByType(1, 'bb'))
 print(GetNumPlayerTokens(1), table.concat(GetPlayerTokens(1), ','), GetPlayerToken(1, 2))
 print(GetPlayerName(2), GetPlayerGuid(2), GetPlayerEndpoint(2), GetNumPlayerIdentifiers(2))
 print(GetPlayerName(9), GetPlayerGuid(9), GetPlayerEndpoint(9), GetNumPlayerIdentifiers(9))
@@ -75,13 +75,23 @@ print(pcall(GetPlayerName, nil))`),
       'nil\tnil',
       // FiveM takes the first identifier that starts with the type.
       'license2:bb\tlicense:aa',
-      'ip:10.0.0.1\tnil',
+      'ip:10.0.0.1\tnil\tnil',
       '2\t3:xx,4:yy\tnil',
       'player\t2\t127.0.0.1\t0',
       'nil\tnil\tnil\t0',
       'nil\tnil\t0',
       'false\tnative 00000000a61c8fc6: Argument at index 1 was null.',
       'false\tnative 00000000406b4b20: Argument at index 0 was null.',
+    ])
+  })
+
+  it('belong to servers, as natives of clients have the same names for players of the game', async () => {
+    const { clients } = await sessionOf({}, ANN)
+    const client = clients[0]!
+    client.add('c', { 'main.lua': `print(GetPlayerName(1))` }, CLIENT_SCRIPT).start()
+    expect(client.take().filter((line) => line.startsWith('[script:'))).toEqual(['[script:c] nil'])
+    expect(client.diagnostics).toEqual([
+      'c: GetPlayerName is not implemented in FiveLab yet: it does nothing and returns zero values.',
     ])
   })
 
@@ -108,6 +118,9 @@ print(table.concat(GetPlayers(), ','))`),
     const client = await createProcess({ side: 'client' })
     const player = session.connect(client.manager, {})
     clients.push(client)
+    server.time = 1500
+    // The server heard from the client as it connected.
+    expect(run(`print(GetPlayerLastMsg(1), GetPlayerTimeOnline(1))`)).toEqual(['500\t0'])
     server.time = 3500
     client.manager.tick()
     server.time = 4000
@@ -162,10 +175,15 @@ end)`,
       .start()
     server.take()
     // Declared void, DropPlayer sets whether it dropped, which FiveM's result checks poison.
-    expect(runAll(`print(DropPlayer(1, 'bye'), DropPlayer(9, 'nobody'))`)).toEqual([
+    expect(
+      runAll(`print(pcall(DropPlayer, 1, nil))
+print(DropPlayer(9, nil), DropPlayer(1, 'bye'), DropPlayer(9, 'nobody'))`),
+    ).toEqual([
+      // FiveM checks the reason only once it found the player.
+      '[script:run0] false\tnative 00000000ba0613e1: Argument at index 1 was null.',
       '[script:watch] dropped\t1\tbye\trun0\t1',
       '[script:watch] players\t1,2,3',
-      '[script:run0] 2146290430\tfalse',
+      '[script:run0] false\t2146290430\tfalse',
     ])
     expect([clients[0]!.manager.session, clients[0]!.manager.player]).toEqual([
       undefined,
@@ -183,6 +201,15 @@ end)`,
       '[script:watch] players\t3',
     ])
     expect(Array.from(session.players)).toEqual([])
+  })
+
+  it('drops only the players of its session', async () => {
+    const first = await sessionOf({}, {})
+    const second = await sessionOf({}, {})
+    const player = first.session.player(1)!
+    second.session.drop(player, 'not mine')
+    expect([first.session.player(1), second.session.player(1)?.dropping]).toEqual([player, false])
+    expect(player.dropping).toBe(false)
   })
 
   it('gives no net id again before it gave all the others', async () => {
