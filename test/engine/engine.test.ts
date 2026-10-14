@@ -95,6 +95,32 @@ end)`,
     expect(() => engine.advance(1000)).not.toThrow()
   })
 
+  it('moves the wall clocks of processes on with the clock, from an epoch', async () => {
+    const files = {
+      'fxmanifest.lua': `fx_version 'cerulean'
+game 'gta5'
+server_script 'server.lua'`,
+      'server.lua': `print(os.time())
+CreateThread(function()
+    Wait(2500)
+    print(os.time())
+end)`,
+    }
+    const { engine, take } = await createEngine({ epoch: 1_700_000_000_000 })
+    engine.server.addResource('a', { files }).start()
+    engine.advance(3000)
+    // A server's own wall clock goes before the engine's.
+    const other = await createEngine({
+      epoch: 1_700_000_000_000,
+      server: { wallClock: () => 5000 },
+    })
+    other.engine.server.addResource('a', { files }).start()
+    expect([take(), other.take()]).toEqual([
+      ['server: 1700000000', 'server: 1700000002'],
+      ['server: 5'],
+    ])
+  })
+
   it('runs the game frames of clients as often as told', async () => {
     const { engine } = await createEngine({ clientFrameTime: 100 })
     const { client } = await engine.connect()

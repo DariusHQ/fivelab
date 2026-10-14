@@ -29,6 +29,12 @@ export interface EngineOptions {
   readonly server?: EngineProcessOptions
   /** Milliseconds between the game frames of clients. */
   readonly clientFrameTime?: number
+  /**
+   * Milliseconds since the Unix epoch at the time 0 of the clock, from which
+   * the wall clocks of the processes move on with the clock, unless their
+   * options give one. Without it, they read the host's.
+   */
+  readonly epoch?: number
 }
 
 /** Writes nothing. */
@@ -97,8 +103,10 @@ async function createProcess(
   processOptions: EngineProcessOptions = {},
 ): Promise<ResourceManager> {
   const start = clock.now
+  const { epoch } = options
   const lua = await LuaRuntime.create(options.cfxlua, { output: () => {} })
   return new ResourceManager({
+    ...(epoch === undefined ? {} : { wallClock: () => epoch + clock.now }),
     ...processOptions,
     side,
     lua,
