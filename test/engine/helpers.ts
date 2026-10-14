@@ -1,6 +1,7 @@
 import {
   ResourceManager,
   type FileSystem,
+  type HttpClient,
   type KvpStore,
   type Player,
   type PlayerIdentity,
@@ -19,6 +20,7 @@ export interface ProcessOptions {
   readonly gameBuild?: number
   readonly kvp?: KvpStore
   readonly files?: FileSystem
+  readonly http?: HttpClient
 }
 
 /** The files of a resource, by their paths in it. */
@@ -93,6 +95,7 @@ export async function createProcess(options: ProcessOptions = {}): Promise<TestP
       ...(options.gameBuild === undefined ? {} : { gameBuild: options.gameBuild }),
       ...(options.kvp === undefined ? {} : { kvp: options.kvp }),
       ...(options.files === undefined ? {} : { files: options.files }),
+      ...(options.http === undefined ? {} : { http: options.http }),
     }),
     time: 0,
     warnings,

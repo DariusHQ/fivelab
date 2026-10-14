@@ -272,7 +272,12 @@ export type MsgpackObject =
     }
   | { readonly type: 'ext'; readonly extension: Extension }
 
-/** Unpacks the msgpack value that `bytes` start with, as msgpack-c does. Throws for bytes that hold none. */
+/**
+ * Unpacks the msgpack value that `bytes` start with, as msgpack-c does.
+ * For bytes that hold none, it throws what msgpack-c does, which natives
+ * fail with: a parse error for the format 0xc1, which msgpack lacks, and
+ * insufficient bytes for those that end too soon.
+ */
 export function unpackObject(bytes: Uint8Array): MsgpackObject {
   return new Reader(bytes).object()
 }
@@ -340,7 +345,7 @@ class Reader {
       case 0xdf:
         return this.#map(this.#uint(first === 0xde ? 2 : 4))
       default:
-        throw new Error('msgpack has no format 0xc1')
+        throw new Error('parse error')
     }
   }
 
@@ -381,7 +386,7 @@ class Reader {
   /** Moves past `size` bytes, and returns where they start. */
   #advance(size: number): number {
     const at = this.#offset
-    if (at + size > this.#bytes.length) throw new Error('msgpack ends before its value does')
+    if (at + size > this.#bytes.length) throw new Error('insufficient bytes')
     this.#offset = at + size
     return at
   }

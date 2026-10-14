@@ -30,6 +30,7 @@ import { Dependencies } from './dependencies.ts'
 import { EventManager } from './events.ts'
 import { MemoryFileSystem, type FileSystem } from './files.ts'
 import { normalizePath } from './glob.ts'
+import { fetchHttpClient, type HttpClient } from './http.ts'
 import { KvpStore } from './kvp.ts'
 import { LatentEvents } from './latent.ts'
 import { atoi, compareUtf8, strtoull } from '../libc.ts'
@@ -78,6 +79,8 @@ export interface ResourceManagerOptions {
    * where FiveM mounts it. Empty files in memory by default.
    */
   readonly files?: FileSystem
+  /** On servers, what sends the HTTP requests of scripts, as FiveM's server does with curl: fetch by default. */
+  readonly http?: HttpClient
 }
 
 /** What a function reference names; see ResourceManager.lookUpRef. */
@@ -131,6 +134,8 @@ export class ResourceManager {
   readonly kvp: KvpStore
   /** The files of the process, which its resources are in. */
   readonly files: FileSystem
+  /** What sends the HTTP requests of the scripts of servers. */
+  readonly http: HttpClient
   /** On servers, whether OneSync is on. */
   readonly oneSync: boolean
   readonly natives = new NativeRegistry<NativeContext>()
@@ -189,6 +194,7 @@ export class ResourceManager {
     this.#time = options.time
     this.kvp = options.kvp ?? new KvpStore()
     this.files = options.files ?? new MemoryFileSystem()
+    this.http = options.http ?? fetchHttpClient
     this.oneSync = this.side === 'server' && (options.oneSync ?? true)
     this.printer = new Printer((channel, text) => this.output.write(channel, text))
     const server = this.side === 'server'

@@ -3,6 +3,7 @@ import type { NativeContext } from '../context.ts'
 import { consoleNatives } from './console.ts'
 import { convarNatives } from './convars.ts'
 import { eventNatives } from './events.ts'
+import { httpNatives } from './http.ts'
 import { kvpNatives } from './kvp.ts'
 import { networkNatives } from './network.ts'
 import { playerNatives } from './players.ts'
@@ -24,5 +25,6 @@ export function engineNatives(side: Side): NativeDefinition<NativeContext>[] {
     ...networkNatives(side),
     ...playerNatives(side),
     ...stateBagNatives(side),
+    ...(side === 'server' ? httpNatives() : []),
   ]
 }

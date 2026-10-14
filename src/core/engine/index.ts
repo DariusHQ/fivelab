@@ -8,6 +8,17 @@ export {
 } from './constraints.ts'
 export { NativeContext } from './context.ts'
 export { MemoryFileSystem, type FileEntry, type FileSystem } from './files.ts'
+export {
+  curlError,
+  curlHeaders,
+  fetchHttpClient,
+  rewriteNucleusUrl,
+  type HttpClient,
+  type HttpFailure,
+  type HttpHeader,
+  type HttpRequest,
+  type HttpResponse,
+} from './http.ts'
 export { KvpStore } from './kvp.ts'
 export { ResourceManager, type ProcessOutput, type ResourceManagerOptions } from './manager.ts'
 export {

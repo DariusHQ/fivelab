@@ -293,17 +293,12 @@ describe('unpackObject', () => {
     expect(unpackObject(bytes('c9 00 00 00 01 0a 01'))).toEqual(ext(10, 1))
   })
 
-  it('fails for bytes that hold no value', () => {
-    expect(() => unpackObject(bytes('c1'))).toThrow(new Error('msgpack has no format 0xc1'))
-    expect(() => unpackObject(new Uint8Array())).toThrow(
-      new Error('msgpack ends before its value does'),
-    )
-    expect(() => unpackObject(bytes('a2 61'))).toThrow(
-      new Error('msgpack ends before its value does'),
-    )
-    expect(() => unpackObject(bytes('92 c0'))).toThrow(
-      new Error('msgpack ends before its value does'),
-    )
+  it('fails for bytes that hold no value, as msgpack-c does', () => {
+    expect(() => unpackObject(bytes('c1'))).toThrow(new Error('parse error'))
+    expect(() => unpackObject(bytes('92 c0 c1'))).toThrow(new Error('parse error'))
+    expect(() => unpackObject(new Uint8Array())).toThrow(new Error('insufficient bytes'))
+    expect(() => unpackObject(bytes('a2 61'))).toThrow(new Error('insufficient bytes'))
+    expect(() => unpackObject(bytes('92 c0'))).toThrow(new Error('insufficient bytes'))
   })
 })
 
