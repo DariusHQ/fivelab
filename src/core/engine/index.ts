@@ -1,3 +1,4 @@
+export { Clock } from './clock.ts'
 export {
   Constraints,
   DEFAULT_GAME_BUILD,
@@ -7,6 +8,14 @@ export {
   type ConstraintResult,
 } from './constraints.ts'
 export { NativeContext } from './context.ts'
+export {
+  CLIENT_FRAME_TIME,
+  Engine,
+  SERVER_FRAME_TIME,
+  type EngineOptions,
+  type EngineProcess,
+  type EngineProcessOptions,
+} from './engine.ts'
 export { MemoryFileSystem, type FileEntry, type FileSystem } from './files.ts'
 export {
   curlError,
