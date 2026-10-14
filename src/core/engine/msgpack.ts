@@ -152,11 +152,7 @@ function write(writer: Writer, value: PackedValue): void {
     writer.sized(BINARY, value.length)
     writer.raw(value)
   } else if (value instanceof Extension) {
-    const fix = FIXEXT.get(value.data.length)
-    if (fix === undefined) writer.sized(EXTENSION, value.data.length)
-    else writer.byte(fix)
-    writer.byte(value.type)
-    writer.raw(value.data)
+    writeExtension(writer, value)
   } else if (isArray(value)) {
     writer.sized(ARRAY, value.length)
     for (const item of value) write(writer, item)
@@ -177,18 +173,84 @@ function isArray(value: PackedValue): value is readonly PackedValue[] {
 function writeNumber(writer: Writer, n: number): void {
   if (!Number.isInteger(n) || Object.is(n, -0) || n < -(2 ** 63) || n >= 2 ** 64) {
     writer.fixed(0xcb, 8, (view, at) => view.setFloat64(at, n))
-  } else if (n >= 0) {
-    if (n < 0x80) writer.byte(n)
-    else if (n < 0x100) writer.fixed(0xcc, 1, (view, at) => view.setUint8(at, n))
-    else if (n < 0x10000) writer.fixed(0xcd, 2, (view, at) => view.setUint16(at, n))
-    else if (n < 0x100000000) writer.fixed(0xce, 4, (view, at) => view.setUint32(at, n))
-    else writer.fixed(0xcf, 8, (view, at) => view.setBigUint64(at, BigInt(n)))
   } else {
-    if (n >= -0x20) writer.byte(n & 0xff)
-    else if (n >= -0x80) writer.fixed(0xd0, 1, (view, at) => view.setInt8(at, n))
-    else if (n >= -0x8000) writer.fixed(0xd1, 2, (view, at) => view.setInt16(at, n))
-    else if (n >= -0x80000000) writer.fixed(0xd2, 4, (view, at) => view.setInt32(at, n))
-    else writer.fixed(0xd3, 8, (view, at) => view.setBigInt64(at, BigInt(n)))
+    writeInteger(writer, BigInt(n))
+  }
+}
+
+/** Writes an integer in the smallest of its formats, as msgpack-c packs integers. */
+function writeInteger(writer: Writer, n: bigint): void {
+  const small = Number(n)
+  if (n >= 0n) {
+    if (n < 0x80n) writer.byte(small)
+    else if (n < 0x100n) writer.fixed(0xcc, 1, (view, at) => view.setUint8(at, small))
+    else if (n < 0x10000n) writer.fixed(0xcd, 2, (view, at) => view.setUint16(at, small))
+    else if (n < 0x100000000n) writer.fixed(0xce, 4, (view, at) => view.setUint32(at, small))
+    else writer.fixed(0xcf, 8, (view, at) => view.setBigUint64(at, n))
+  } else {
+    if (n >= -0x20n) writer.byte(small & 0xff)
+    else if (n >= -0x80n) writer.fixed(0xd0, 1, (view, at) => view.setInt8(at, small))
+    else if (n >= -0x8000n) writer.fixed(0xd1, 2, (view, at) => view.setInt16(at, small))
+    else if (n >= -0x80000000n) writer.fixed(0xd2, 4, (view, at) => view.setInt32(at, small))
+    else writer.fixed(0xd3, 8, (view, at) => view.setBigInt64(at, n))
+  }
+}
+
+function writeExtension(writer: Writer, extension: Extension): void {
+  const fix = FIXEXT.get(extension.data.length)
+  if (fix === undefined) writer.sized(EXTENSION, extension.data.length)
+  else writer.byte(fix)
+  writer.byte(extension.type)
+  writer.raw(extension.data)
+}
+
+/**
+ * Packs a msgpack value as msgpack-c packs a msgpack::object: as its type,
+ * in the smallest of the formats of that type.
+ */
+export function packObject(object: MsgpackObject): Uint8Array {
+  const writer = new Writer()
+  writeObject(writer, object)
+  return writer.bytes
+}
+
+function writeObject(writer: Writer, object: MsgpackObject): void {
+  switch (object.type) {
+    case 'nil':
+      writer.byte(0xc0)
+      break
+    case 'boolean':
+      writer.byte(object.value ? 0xc3 : 0xc2)
+      break
+    case 'positive':
+    case 'negative':
+      writeInteger(writer, object.value)
+      break
+    case 'float32':
+      writer.fixed(0xca, 4, (view, at) => view.setFloat32(at, object.value))
+      break
+    case 'float64':
+      writer.fixed(0xcb, 8, (view, at) => view.setFloat64(at, object.value))
+      break
+    case 'str':
+    case 'bin':
+      writer.sized(object.type === 'str' ? STRING : BINARY, object.bytes.length)
+      writer.raw(object.bytes)
+      break
+    case 'array':
+      writer.sized(ARRAY, object.items.length)
+      for (const item of object.items) writeObject(writer, item)
+      break
+    case 'map':
+      writer.sized(MAP, object.entries.length)
+      for (const [key, value] of object.entries) {
+        writeObject(writer, key)
+        writeObject(writer, value)
+      }
+      break
+    case 'ext':
+      writeExtension(writer, object.extension)
+      break
   }
 }
 

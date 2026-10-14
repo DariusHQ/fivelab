@@ -4,6 +4,7 @@ import {
   arrayLength,
   Extension,
   pack,
+  packObject,
   stringOf,
   toJson,
   unpackObject,
@@ -303,6 +304,45 @@ describe('unpackObject', () => {
     expect(() => unpackObject(bytes('92 c0'))).toThrow(
       new Error('msgpack ends before its value does'),
     )
+  })
+})
+
+describe('packObject', () => {
+  it('packs values as their type, in the smallest format of the type, as msgpack-c does', () => {
+    const packed = [
+      'c0',
+      'c2',
+      'c3',
+      '7f',
+      'cc 80',
+      'cc ff',
+      'cd 01 00',
+      'cd ff ff',
+      'ce 00 01 00 00',
+      'ce ff ff ff ff',
+      'cf 00 00 00 01 00 00 00 00',
+      'e0',
+      'd0 df',
+      'd0 80',
+      'd1 ff 7f',
+      'd1 80 00',
+      'd2 ff ff 7f ff',
+      'd2 80 00 00 00',
+      'd3 ff ff ff ff 7f ff ff ff',
+      'ca 3f c0 00 00',
+      'cb 3f f8 00 00 00 00 00 00',
+      'a1 61',
+      `d9 20 ${'61 '.repeat(32).trim()}`,
+      'c4 01 00',
+      '92 01 a1 61',
+      '81 a1 61 c0',
+      'd4 0a 01',
+      'c7 03 0b 01 02 03',
+    ]
+    for (const hex of packed) {
+      const bytes = new Uint8Array(hex.split(' ').map((byte) => Number.parseInt(byte, 16)))
+      expect(Array.from(packObject(unpackObject(bytes)))).toEqual(Array.from(bytes))
+    }
   })
 })
 
