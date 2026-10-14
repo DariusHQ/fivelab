@@ -3,6 +3,9 @@ import { atoi } from '../libc.ts'
 /** The build of FiveM that FiveLab follows, whose typings its natives come from. */
 export const FIVEM_BUILD = 37175
 
+/** The version that FiveM's servers of that build say they run, as those of Linux say it. */
+export const FIVEM_VERSION = `FXServer-master SERVER v1.0.0.${FIVEM_BUILD} linux`
+
 /** The game build that FiveM's server enforces unless sv_enforceGameBuild says otherwise. */
 export const DEFAULT_GAME_BUILD = 3258
 

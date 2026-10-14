@@ -130,7 +130,7 @@ function responseArgs(token: number, result: HttpResponse | HttpFailure): Uint8A
   return packObject({ type: 'array', items: args })
 }
 
-/** Natives of FiveM's server for the HTTP requests of scripts. */
+/** Natives of FiveM's server for the HTTP requests of scripts, and those of its own HTTP server. */
 export function httpNatives(): NativeDefinition<NativeContext>[] {
   /** The token of the next request, counted across the resources of the process, as FiveM does from 0. */
   let nextToken = 0
@@ -150,6 +150,13 @@ export function httpNatives(): NativeDefinition<NativeContext>[] {
           manager.events.queue(RESPONSE_EVENT, responseArgs(token, result), '', resource)
         })
         return token
+      },
+    ),
+    defineNative(
+      { name: 'SET_HTTP_HANDLER', result: 'void', params: ['func handler'] },
+      (ctx: NativeContext, handler) => {
+        // FiveM keeps the reference as it is, without holding the function.
+        ctx.manager.httpServer?.setHandler(ctx.resource, checkArgument(handler, 0))
       },
     ),
   ]

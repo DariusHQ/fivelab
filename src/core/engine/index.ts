@@ -19,6 +19,14 @@ export {
   type HttpRequest,
   type HttpResponse,
 } from './http.ts'
+export {
+  HttpServer,
+  type HttpEndpoint,
+  type HttpServerExchange,
+  type HttpServerRequest,
+  type HttpServerResponse,
+  type HttpServerSink,
+} from './httpserver.ts'
 export { KvpStore } from './kvp.ts'
 export { ResourceManager, type ProcessOutput, type ResourceManagerOptions } from './manager.ts'
 export {

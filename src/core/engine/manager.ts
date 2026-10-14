@@ -31,6 +31,7 @@ import { EventManager } from './events.ts'
 import { MemoryFileSystem, type FileSystem } from './files.ts'
 import { normalizePath } from './glob.ts'
 import { fetchHttpClient, type HttpClient } from './http.ts'
+import { HttpServer } from './httpserver.ts'
 import { KvpStore } from './kvp.ts'
 import { LatentEvents } from './latent.ts'
 import { atoi, compareUtf8, strtoull } from '../libc.ts'
@@ -136,6 +137,8 @@ export class ResourceManager {
   readonly files: FileSystem
   /** What sends the HTTP requests of the scripts of servers. */
   readonly http: HttpClient
+  /** On servers, the HTTP server, which takes the requests to the resources. */
+  readonly httpServer: HttpServer | undefined
   /** On servers, whether OneSync is on. */
   readonly oneSync: boolean
   readonly natives = new NativeRegistry<NativeContext>()
@@ -214,6 +217,7 @@ export class ResourceManager {
     } else {
       this.consoleBuffer = undefined
     }
+    this.httpServer = server ? new HttpServer(this) : undefined
     const consoleOptions = {
       security: this.security,
       output: this.printer,

@@ -114,6 +114,8 @@ export class Resource {
     this.onStop.connect(() => this.#destroyRuntime())
     // FiveM's server packs what clients get once the scripts of the resource loaded.
     if (manager.side === 'server') this.onStart.connect(() => this.#packForClients(), 500)
+    // FiveM's server gives each resource that runs an endpoint of its HTTP server.
+    manager.httpServer?.attach(this)
   }
 
   get state(): ResourceState {
