@@ -28,6 +28,12 @@ interface Filter extends ChannelFilter {
   readonly matches: (channel: string) => boolean
 }
 
+/** What takes what prints for a while; see Printer.within. */
+interface Scope {
+  readonly rename: (channel: string) => string
+  readonly listener: (text: string) => void
+}
+
 /**
  * What FiveM's console prints, as console::Printf and its siblings print
  * it: text on a channel, which goes to the console of the process unless
@@ -41,6 +47,7 @@ export class Printer implements ConsoleOutput {
   /** The filters, ordered by pattern as C++ orders strings, then by action. */
   readonly #filters: Filter[] = []
   readonly #listeners: ((channel: string, text: string) => void)[] = []
+  readonly #scopes: Scope[] = []
 
   /** A printer that writes what reaches the console of the process with `write`. */
   constructor(write: (channel: string, text: string) => void) {
@@ -52,6 +59,7 @@ export class Printer implements ConsoleOutput {
   }
 
   print(channel: string, text: string): void {
+    for (const { rename } of this.#scopes) channel = rename(channel)
     let actions = 0
     for (const { matches, action } of this.#filters) {
       if (matches(channel)) actions |= action
@@ -63,6 +71,22 @@ export class Printer implements ConsoleOutput {
     const shown = text.replaceAll('\0', '^5<\\0>^7')
     if ((actions & ChannelAction.noPrint) === 0) this.#write(channel, shown)
     for (const listener of this.#listeners) listener(channel, shown)
+    for (const { listener } of this.#scopes) listener(shown)
+  }
+
+  /**
+   * Runs `fn` while what prints goes on the channel that `rename` gives for
+   * its own, before the filters, and to `listener` as well, unless filters
+   * drop it, as FiveM's print filter and print listener contexts take what
+   * prints while they last.
+   */
+  within<T>(rename: (channel: string) => string, listener: (text: string) => void, fn: () => T): T {
+    this.#scopes.push({ rename, listener })
+    try {
+      return fn()
+    } finally {
+      this.#scopes.pop()
+    }
   }
 
   /**

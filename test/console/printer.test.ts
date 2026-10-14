@@ -119,6 +119,39 @@ describe('Printer', () => {
     ])
   })
 
+  it('renames the channels of what prints within a scope before the filters, and tells its listener after the others', () => {
+    const { printer, written, run } = createPrinter()
+    const heard: string[] = []
+    printer.listen((channel, text) => heard.push(`[${channel}] ${text}`))
+    run('con_addChannelFilter fwd:* noprint')
+    run('con_addChannelFilter fwd:gone drop')
+    const listener = (text: string) => heard.push(`scope ${text}`)
+    const result = printer.within(
+      (channel) => `fwd:${channel}`,
+      listener,
+      () => {
+        printer.print('a', 'b\0')
+        printer.print('gone', 'c')
+        return 5
+      },
+    )
+    expect(() =>
+      printer.within(
+        (channel) => `x${channel}`,
+        listener,
+        () => {
+          throw new Error('stop')
+        },
+      ),
+    ).toThrow('stop')
+    printer.print('a', 'd')
+    expect([result, heard, written]).toEqual([
+      5,
+      ['[fwd:a] b^5<\\0>^7', 'scope b^5<\\0>^7', '[a] d'],
+      ['[a] d'],
+    ])
+  })
+
   it('adds, replaces and removes filters by pattern and action, which it lists in that order', () => {
     const { printer, written, run } = createPrinter()
     const smile = String.fromCodePoint(0x1f600)

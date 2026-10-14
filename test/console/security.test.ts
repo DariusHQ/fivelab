@@ -92,6 +92,20 @@ describe('Security', () => {
     expect(security.check('command.a')).toBe(false)
   })
 
+  it('runs code as all the principals of a player, in their order', () => {
+    const security = new Security()
+    security.addEntry('player.1', 'command.a', 'allow')
+    expect(
+      security.runAs('system.console', () =>
+        security.runAs(['Identifier.License:X', 'player.1'], () => [
+          security.principals,
+          security.check('command.a'),
+        ]),
+      ),
+    ).toEqual([['identifier.license:x', 'player.1', 'system.console'], true])
+    expect(security.principals).toEqual([])
+  })
+
   it('orders entries by object and inheritances by child, as C++ orders strings', () => {
     const security = new Security()
     const high = String.fromCodePoint(0xffff)

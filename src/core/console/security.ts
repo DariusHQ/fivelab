@@ -78,13 +78,17 @@ export class Security {
     removeWhere(this.#inheritances, (i) => i.child === c && i.parent === p)
   }
 
-  /** Runs `fn` as `principal`, as FiveM's se::ScopedPrincipal does. */
-  runAs<T>(principal: string, fn: () => T): T {
-    this.#principals.unshift(lowerAscii(principal))
+  /**
+   * Runs `fn` as `principal`, or as each of `principals` in turn, as FiveM's
+   * se::ScopedPrincipal does with a principal, or with those of a player.
+   */
+  runAs<T>(principals: string | readonly string[], fn: () => T): T {
+    const added = (typeof principals === 'string' ? [principals] : principals).map(lowerAscii)
+    this.#principals.unshift(...added)
     try {
       return fn()
     } finally {
-      this.#principals.shift()
+      this.#principals.splice(0, added.length)
     }
   }
 

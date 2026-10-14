@@ -215,7 +215,8 @@ export class Player {
  *
  * Clients that join download the resources of the server that it gives
  * clients, as it packed them as they started, and those it starts later,
- * and stop those it stops, as FiveM's clients do.
+ * and stop those it stops, as FiveM's clients do. They send the server the
+ * commands that they have none for, which it runs as their players.
  */
 export class Session {
   readonly server: ResourceManager
@@ -231,12 +232,24 @@ export class Session {
   readonly #deferrals = new Map<Player, Deferral>()
   /** The resources that each client waits to download as they started, which FiveM's clients download once. */
   readonly #starting = new Map<Player, Set<string>>()
+  /** The line of the command of a client that the server runs, or empty. */
+  #command = ''
 
   constructor(server: ResourceManager) {
     if (server.side !== 'server') throw new Error('A session needs a server')
     if (server.session !== undefined) throw new Error('The server has a session already')
     this.server = server
     server.joinSession(this)
+    // FiveM's server gives scripts the commands of clients that it has none for.
+    server.console.commands.onFallback.connect((_name, _args, source) => {
+      if (source === '') return true
+      const payload = pack([this.#command])
+      return server.events.trigger(
+        '__cfx_internal:commandFallback',
+        payload,
+        `internal-net:${source}`,
+      )
+    }, 99999)
   }
 
   /**
@@ -399,6 +412,41 @@ export class Session {
     const joined = player.state === 'joined'
     player.update({ state })
     player.client.leaveSession(joined)
+  }
+
+  /** @internal Called by a client that joined as it sends its server the command `line`, which the server runs at its next tick. */
+  command(player: Player, line: string): void {
+    this.server.enqueue(() => this.#runCommand(player, line))
+  }
+
+  /**
+   * Runs a command that a client sent, as FiveM's server does: as the
+   * principals of its player, for its net id. What the command prints goes
+   * on forward:<net id>/<channel>, which FiveM's servers keep from their
+   * console, and to the client, with __cfx_internal:serverPrint.
+   */
+  #runCommand(player: Player, line: string): void {
+    const { server } = this
+    let printed = ''
+    server.printer.within(
+      (channel) => `forward:${player.netId}/${channel}`,
+      (text) => {
+        printed += text
+      },
+      () =>
+        server.security.runAs(player.principals, () => {
+          this.#command = line
+          try {
+            server.console.commands.invoke(line, String(player.netId))
+          } finally {
+            this.#command = ''
+          }
+        }),
+    )
+    if (printed !== '' && player.state === 'joined') {
+      const source = `net:${SERVER_NET_ID}`
+      player.client.events.queue('__cfx_internal:serverPrint', pack([printed]), source)
+    }
   }
 
   /** @internal Called by the server as it starts a resource that clients get, which they download and start. */

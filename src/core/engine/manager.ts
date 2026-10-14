@@ -218,6 +218,13 @@ export class ResourceManager {
       this.console = this.defaultConsole
       // FiveM's NUI console listens to the variables first, for its main menu, which FiveLab has not.
       this.console.variables.watch(() => {})
+      // FiveM's client sends the server it joined the commands it has none for.
+      this.console.commands.onFallback.connect(() => {
+        const player = this.#player
+        if (player === undefined) return true
+        player.session.command(player, this.console.commands.rawCommand)
+        return false
+      }, 99999)
     }
     this.natives.register(
       ...catalogNatives<NativeContext>(this.side),
