@@ -360,7 +360,7 @@ describe('toJson', () => {
     expect(toJson(unpackObject(bytes('83 0a c0 02 c2 ff c3')))).toBe(
       '{"-1":true,"10":null,"2":false}',
     )
-    expect(toJson(unpackObject(bytes('82 a1 61 01 a1 61 02')))).toBe('{"a":1}')
+    expect(toJson(unpackObject(bytes('82 a1 61 01 a1 61 02')))).toBe('{"a":2}')
     expect(toJson(unpackObject(bytes('81 ff c3')))).toBe('{"-1":true}')
     expect(toJson(unpackObject(bytes('82 ce 7f ff ff ff 01 d2 80 00 00 00 02')))).toBe(
       '{"-2147483648":2,"2147483647":1}',

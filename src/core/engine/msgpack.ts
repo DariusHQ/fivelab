@@ -382,7 +382,7 @@ export function toJson(object: MsgpackObject): string | undefined {
 
 /**
  * The members of a map as FiveM's ConvertToJSON takes them: into a
- * std::map of strings, so ordered by their bytes, with the first of each
+ * std::map of strings, so ordered by their bytes, with the last of each
  * key.
  */
 function jsonMembers(
@@ -394,7 +394,7 @@ function jsonMembers(
   for (const [key, value] of entries) {
     const name = byString ? stringOf(key) : intKey(key)
     if (name === undefined) throw new TypeError('A msgpack map has a key of another type')
-    if (!members.has(name)) members.set(name, value)
+    members.set(name, value)
   }
   return [...members].sort(([a], [b]) => compareUtf8(a, b))
 }
