@@ -18,6 +18,7 @@ import refsSource from './lua/refs.lua?raw'
 import schedulerSource from './lua/scheduler.lua?raw'
 import statesSource from './lua/states.lua?raw'
 import deferredSource from './lua/vendor/deferred.lua?raw'
+import { osLibrary, type OsHost } from './os.ts'
 
 /** The natives a resource's scripts can call. */
 export interface ScriptNatives {
@@ -49,6 +50,8 @@ export interface ScriptHost {
    */
   readonly exports: readonly string[]
   readonly natives: ScriptNatives
+  /** On servers, what FiveM's os library reaches of the process, which clients have no os library for. */
+  readonly os?: OsHost
   /**
    * The time on the clock that threads wait by, in whole microseconds from
    * CLOCK_START. It must not go back.
@@ -384,6 +387,8 @@ export class ScriptRuntime implements NativeCaller {
 
   #init(): void {
     const { state, host } = this
+    // FiveM's server opens its own os library with the standard ones.
+    if (host.os !== undefined) state.setLibrary('os', osLibrary(state, host.os))
     const require = state.requireFunction()
     state.setGlobal('require', require)
     require.release()

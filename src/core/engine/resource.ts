@@ -13,6 +13,7 @@ import {
   type MetadataEntry,
   type MetadataLocation,
 } from './manifest.ts'
+import { osFiles } from './vfs.ts'
 
 /** The states of a resource, named as GetResourceState names them. */
 export type ResourceState = 'uninitialized' | 'stopped' | 'starting' | 'started' | 'stopping'
@@ -430,6 +431,18 @@ export class Resource {
         load: (native) => manager.nativeWrapper(native),
         invoke: (runtime, ptr) => manager.natives.invoke(this.#contextFor(runtime), ptr),
       },
+      ...(manager.side === 'client'
+        ? {}
+        : {
+            os: {
+              wallClock: () => manager.wallClock(),
+              timeZone: manager.timeZone,
+              processTime: () => manager.time(),
+              steadyClock: () => manager.clock(),
+              nextTemporaryName: () => manager.nextTemporaryName(),
+              ...osFiles(manager, name),
+            },
+          }),
       clock: () => manager.clock(),
       trace: (text) => manager.log(`script:${name}`, text),
       warn: (message) => manager.output.warn(name, message),
