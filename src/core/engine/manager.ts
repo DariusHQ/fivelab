@@ -31,7 +31,7 @@ import { normalizePath } from './glob.ts'
 import { KvpStore } from './kvp.ts'
 import { atoi, compareUtf8, strtoull } from '../libc.ts'
 import { isFxVersionAtLeast } from './manifest.ts'
-import { arrayLength } from './msgpack.ts'
+import { arrayLength, pack } from './msgpack.ts'
 import { addPermissionCommands, FilesystemPermissions } from './permissions.ts'
 import { engineNatives } from './natives/index.ts'
 import { Resource, type ResourceDefinition } from './resource.ts'
@@ -203,6 +203,11 @@ export class ResourceManager {
       this.#scanner = new ResourceScanner(this)
       addConfigCommands(this)
       addResourceCommands(this)
+      // FiveM's server gives scripts the commands it has none for, that the code that runs may run, as rconCommand.
+      this.console.commands.onFallback.connect((name, args) => {
+        if (!this.security.check(`command.${name}`)) return true
+        return this.events.trigger('rconCommand', pack([name, args]))
+      }, -100)
       this.#startServerConsole()
     } else {
       // FiveM's client lets its own code set what servers replicate, among others.

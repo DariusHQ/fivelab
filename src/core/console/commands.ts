@@ -1,3 +1,4 @@
+import { Hook } from '../hook.ts'
 import { compareUtf8, stoull, stricmpKey } from '../libc.ts'
 import type { Security } from './security.ts'
 import { decodeUtf8, tokenize } from './tokenize.ts'
@@ -50,6 +51,12 @@ interface Entry extends CommandInfo {
  * NUL, and the commands are listed in that order.
  */
 export class Commands {
+  /**
+   * Runs with the name, arguments and source of a command that no handler
+   * has, before the fallback commands, as FiveM's FallbackEvent does. A
+   * callback that returns false takes the command, which runs no further.
+   */
+  readonly onFallback = new Hook<[name: string, args: readonly string[], source: string]>()
   readonly #security: Security
   readonly #output: ConsoleOutput
   readonly #fallback: Commands | undefined
@@ -131,14 +138,15 @@ export class Commands {
 
   /**
    * Runs the command `name` with `args`, as FiveM's InvokeDirect does: in
-   * the fallback commands if this has no such command, if the code that runs
-   * may access command.<name>, until a handler takes the arguments, or
-   * printing why the last one did not.
+   * the callbacks of onFallback, then in the fallback commands, if this has
+   * no such command, if the code that runs may access command.<name>, until
+   * a handler takes the arguments, or printing why the last one did not.
    */
   invokeDirect(name: string, args: readonly string[], source = ''): void {
     const key = stricmpKey(name)
     const handlers = this.#entries.filter((entry) => entry.key === key).map((e) => e.handler)
     if (handlers.length === 0) {
+      if (!this.onFallback.run(name, args, source)) return
       if (this.#fallback !== undefined) {
         this.#fallback.#rawCommand = this.#rawCommand
         this.#fallback.invokeDirect(name, args, source)

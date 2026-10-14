@@ -138,6 +138,25 @@ describe('Commands', () => {
     expect(fallback.printed).toEqual(['[cmd] No such command neither.\n'])
   })
 
+  it('give onFallback the commands that they do not have before their fallback, which it may take', () => {
+    const fallback = createCommands()
+    const { commands, printed, run } = createCommands(fallback)
+    const seen: string[] = []
+    commands.register('local', 'r', () => true)
+    commands.onFallback.connect((name, args, source) => {
+      seen.push(`${name} [${args.join(',')}] '${source}'`)
+      return name !== 'taken'
+    })
+    fallback.commands.onFallback.connect((name) => {
+      seen.push(`fallback ${name}`)
+    })
+    run('local')
+    run('taken a b', '3')
+    run('other')
+    expect(seen).toEqual(["taken [a,b] '3'", "other [] ''", 'fallback other'])
+    expect([printed, fallback.printed]).toEqual([[], ['[cmd] No such command other.\n']])
+  })
+
   it('forget the line of the command that runs once another ran', () => {
     const { commands, run } = createCommands()
     const lines: string[] = []

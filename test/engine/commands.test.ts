@@ -180,3 +180,53 @@ print(pcall(ExecuteCommand, nil))`,
     expect(manager.console.variables.find('fromB')?.value).toBe('1 2')
   })
 })
+
+describe('Commands that servers have none for', () => {
+  it('go to rconCommand when the code that runs may run them, which may take them', async () => {
+    const proc = await createProcess()
+    startResource(proc, 'a', {
+      'main.lua': `AddEventHandler('rconCommand', function(name, args)
+  print(source == '', name, #args, args[1], args[2])
+  if name == 'mine' then CancelEvent() end
+end)`,
+    })
+    runCommand(proc.manager, 'mine x "y z"', 'system.console')
+    runCommand(proc.manager, 'other', 'system.console')
+    // Code that may not run the command gives it to no script.
+    runCommand(proc.manager, 'mine', 'resource.b')
+    expect(proc.take()).toEqual([
+      '[script:a] true\tmine\t2\tx\ty z',
+      '[script:a] true\tother\t0\tnil\tnil',
+      '[cmd] No such command other.',
+      '[cmd] No such command mine.',
+    ])
+  })
+
+  it('go to rconCommand at the order FiveM gives it among the callbacks of onFallback', async () => {
+    const proc = await createProcess()
+    startResource(proc, 'a', {
+      'main.lua': `AddEventHandler('rconCommand', function(name) print('rcon', name) end)`,
+    })
+    for (const order of [-101, -99]) {
+      proc.manager.console.commands.onFallback.connect((name) => {
+        proc.manager.log('test', `${order} ${name}\n`)
+      }, order)
+    }
+    runCommand(proc.manager, 'other', 'system.console')
+    expect(proc.take()).toEqual([
+      '[test] -101 other',
+      '[script:a] rcon\tother',
+      '[test] -99 other',
+      '[cmd] No such command other.',
+    ])
+  })
+
+  it('go to no rconCommand on clients', async () => {
+    const proc = await createProcess({ side: 'client' })
+    startResource(proc, 'a', {
+      'main.lua': `AddEventHandler('rconCommand', function() print('rcon') end)`,
+    })
+    runCommand(proc.manager, 'other', 'system.console')
+    expect(proc.take()).toEqual(['[cmd] No such command other.'])
+  })
+})
