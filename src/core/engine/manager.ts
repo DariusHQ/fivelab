@@ -40,6 +40,7 @@ import { engineNatives } from './natives/index.ts'
 import { Resource, type ResourceDefinition } from './resource.ts'
 import { ResourceScanner } from './scan.ts'
 import type { Player, Session } from './session.ts'
+import { StateBags } from './statebags.ts'
 
 /** Where a process writes what it reports. */
 export interface ProcessOutput {
@@ -136,6 +137,8 @@ export class ResourceManager {
   readonly events = new EventManager(this)
   /** The latent events that the process sends. */
   readonly latent = new LatentEvents(this)
+  /** The state bags of the process. */
+  readonly states: StateBags
   /** The callbacks of the process's own code that scripts call as functions. */
   readonly callbacks = new Callbacks()
   /** What dependencies such as /server:5181 test, which only servers enforce. */
@@ -166,6 +169,10 @@ export class ResourceManager {
   #player: Player | undefined
   /** sv_enableNetEventReassembly, which turns latent events on. */
   readonly #reassembly: Variable
+  /** sv_stateBagStrictMode, which keeps clients from setting state bags. */
+  readonly #strictStateBags: Variable
+  /** What the network gave the process, which its next tick takes first. */
+  readonly #received: (() => void)[] = []
   /** On clients, the names of the variables that their server created, and of those it changed, to take back as they leave it. */
   #fromServer: { created: string[]; modified: string[] } = { created: [], modified: [] }
   /** On clients that left a session, whether they had joined it, until they reset their resources; see leaveSession. */
@@ -185,6 +192,15 @@ export class ResourceManager {
     this.oneSync = this.side === 'server' && (options.oneSync ?? true)
     this.printer = new Printer((channel, text) => this.output.write(channel, text))
     const server = this.side === 'server'
+    this.states = new StateBags(server, (peer, bag, key, data) => {
+      const player = this.#player
+      if (server) {
+        this.#session?.sendStateBag(peer, bag, key, data)
+      } else if (player !== undefined) {
+        // FiveM's client sends what it sends to its server, while it has one.
+        player.session.receiveStateBag(player, bag, key, data)
+      }
+    })
     if (server) {
       const buffer = new ConsoleBuffer(this)
       this.printer.listen((channel, text) => buffer.add(channel, text))
@@ -223,6 +239,14 @@ export class ResourceManager {
         'bool',
         true,
       )
+      // FiveM's server owns the global bag, which no client may set.
+      this.states.register('global', true).owner = -1
+      this.#strictStateBags = this.console.variables.define(
+        'sv_stateBagStrictMode',
+        VariableFlags.none,
+        'bool',
+        false,
+      )
       this.#startServerConsole()
     } else {
       // FiveM's client lets its own code set what servers replicate, among others.
@@ -240,13 +264,24 @@ export class ResourceManager {
         player.session.command(player, this.console.commands.rawCommand)
         return false
       }, 99999)
-      // FiveM's client takes the variable from its server, which replicates it.
+      // FiveM's client takes the variables from its server, which replicates them.
       this.#reassembly = this.console.variables.define(
         'sv_enableNetEventReassembly',
         VariableFlags.replicated,
         'bool',
         true,
       )
+      this.#strictStateBags = this.console.variables.define(
+        'sv_stateBagStrictMode',
+        VariableFlags.replicated,
+        'bool',
+        false,
+      )
+      // FiveM's client sends the bags it has to its server, and takes those of players as they come, as
+      // those of entities, which FiveLab has none of.
+      this.states.register('global', true)
+      this.states.registerTarget(0)
+      this.states.addPreCreatePrefix('player:', true)
     }
     this.natives.register(
       ...catalogNatives<NativeContext>(this.side),
@@ -431,6 +466,11 @@ export class ResourceManager {
     if (left.joined) this.events.holdingResourceStops(() => this.resetResources())
     else this.resetResources()
     this.#forgetServerVariables()
+    if (left.joined) {
+      // FiveM's client forgets the bags of its game session, but for a new global one.
+      this.states.reset()
+      this.states.register('global', true)
+    }
   }
 
   /**
@@ -588,8 +628,9 @@ export class ResourceManager {
   }
 
   /**
-   * Runs a tick as FiveM does: it runs the commands of the console's buffer
-   * as the console, triggers the queued events, then resumes the threads
+   * Runs a tick as FiveM does: it takes what the network gave the process,
+   * runs the commands of the console's buffer as the console, triggers
+   * the queued events, then resumes the threads
    * that are due in all runtimes. It takes the due threads of every runtime
    * before it resumes any, so that threads queued during the tick wait for
    * the next one. A client tells its server it is there first, as FiveM's
@@ -602,6 +643,7 @@ export class ResourceManager {
    */
   tick(): void {
     this.#player?.touch()
+    for (const fn of this.#received.splice(0)) fn()
     this.security.runAs('system.console', () => this.console.executeBuffer())
     this.events.tick()
     const ticking = this.#ticking.map((resource) => ({ resource, runtime: resource.runtime! }))
@@ -618,6 +660,20 @@ export class ResourceManager {
   /** Whether the process sends latent events, as sv_enableNetEventReassembly says. */
   get reassembling(): boolean {
     return this.#reassembly.rawValue === true
+  }
+
+  /** Whether the state bags of the process are in strict mode, as sv_stateBagStrictMode says, which keeps clients from setting them. */
+  get strictStateBags(): boolean {
+    return this.#strictStateBags.rawValue === true
+  }
+
+  /**
+   * @internal Runs `fn` at the start of the next tick, before the commands
+   * and the events, as FiveM handles the packets the network gives it, such
+   * as those of state bags.
+   */
+  receive(fn: () => void): void {
+    this.#received.push(fn)
   }
 
   /**

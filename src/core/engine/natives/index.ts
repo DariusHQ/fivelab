@@ -9,6 +9,7 @@ import { playerNatives } from './players.ts'
 import { refNatives } from './refs.ts'
 import { resourceNatives } from './resources.ts'
 import { scriptingNatives } from './scripting.ts'
+import { stateBagNatives } from './states.ts'
 
 /** The natives FiveLab implements for a side, which replace those of the catalog. */
 export function engineNatives(side: Side): NativeDefinition<NativeContext>[] {
@@ -22,5 +23,6 @@ export function engineNatives(side: Side): NativeDefinition<NativeContext>[] {
     ...kvpNatives(side),
     ...networkNatives(side),
     ...playerNatives(side),
+    ...stateBagNatives(side),
   ]
 }

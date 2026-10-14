@@ -18,9 +18,11 @@ export {
 } from './manifest.ts'
 export { engineNatives } from './natives/index.ts'
 export { Resource, type ResourceDefinition, type ResourceState } from './resource.ts'
+export { StateBag, StateBags, type StateBagChange, type StateBagSender } from './statebags.ts'
 export {
   CLIENT_DROP_RESOURCE,
   DropReason,
+  freeSlot,
   netIdAfter,
   Player,
   SERVER_DROP_RESOURCE,

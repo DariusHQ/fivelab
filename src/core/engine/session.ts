@@ -10,6 +10,12 @@ export const SERVER_NET_ID = 0xffff
 /** The first of the temporary net ids that FiveM's servers give the players that connect. */
 export const TEMPORARY_NET_IDS = 0x10000
 
+/** The highest of the slots that FiveM's servers give players with OneSync, in its big mode, of 2049. */
+const MAX_SLOT = 2048
+
+/** The slot that FiveM's servers give no player. */
+const SKIPPED_SLOT = 31
+
 /** The slot that FiveM's servers with OneSync tell joining players they have. */
 const ONESYNC_SLOT = 128
 
@@ -35,6 +41,18 @@ export const CLIENT_DROP_RESOURCE = '__cfx_internal:client'
 
 /** What FiveM's servers name as the resource that dropped players that they dropped themselves. */
 export const SERVER_DROP_RESOURCE = '__cfx_internal:server'
+
+/**
+ * The slot that FiveM's servers with OneSync give the next player: the
+ * highest of those that `taken` says no player has, but 31, or -1 when
+ * there is none.
+ */
+export function freeSlot(taken: (slot: number) => boolean): number {
+  for (let slot = MAX_SLOT; slot >= 0; slot--) {
+    if (slot !== SKIPPED_SLOT && !taken(slot)) return slot
+  }
+  return -1
+}
 
 /** The net id after `id`, as FiveM's servers count them: from 1 up to 65534, then from 1 again. */
 export function netIdAfter(id: number): number {
@@ -87,6 +105,7 @@ export class Player {
   #card: string | undefined
   #rejection: string | undefined
   #handover: ReadonlyMap<string, string> = new Map()
+  #slot: number | undefined
 
   /** @internal Players come from Session.connect. */
   constructor(session: Session, client: ResourceManager, netId: number, identity: PlayerIdentity) {
@@ -158,6 +177,15 @@ export class Player {
   }
 
   /** The data that deferrals handed the player over with as it connected, as JSON, by key. */
+  /**
+   * On servers with OneSync, the slot that the player got as it joined, as
+   * FiveM gives them: the highest that no player has, but 31. Its state
+   * bags know the player by it.
+   */
+  get slot(): number | undefined {
+    return this.#slot
+  }
+
   get handover(): ReadonlyMap<string, string> {
     return this.#handover
   }
@@ -199,6 +227,7 @@ export class Player {
     readonly card?: string
     readonly rejection?: string
     readonly handover?: ReadonlyMap<string, string>
+    readonly slot?: number
   }): void {
     this.#netId = change.netId ?? this.#netId
     this.#state = change.state ?? this.#state
@@ -206,6 +235,7 @@ export class Player {
     this.#card = change.card ?? this.#card
     this.#rejection = change.rejection ?? this.#rejection
     this.#handover = change.handover ?? this.#handover
+    this.#slot = change.slot ?? this.#slot
   }
 }
 
@@ -241,6 +271,8 @@ export class Session {
   #temporaryNetIds = 0
   /** The deferrals of the players that connect. */
   readonly #deferrals = new Map<Player, Deferral>()
+  /** On servers with OneSync, the players that joined by their slots. */
+  readonly #slots = new Map<number, Player>()
   /** The resources that each client waits to download as they started, which FiveM's clients download once. */
   readonly #starting = new Map<Player, Set<string>>()
   /** The line of the command of a client that the server runs, or empty. */
@@ -390,6 +422,7 @@ export class Session {
     this.#nextNetId = netIdAfter(netId)
     this.#byNetId.set(netId, player)
     player.update({ netId, state: 'joined' })
+    if (this.server.oneSync) this.#addStateBags(player)
     player.client.joinSession(this, player)
     player.client.takeServerVariables(this.server.replicatedVariables())
     // The client removes its resources and downloads those of the server as it connects.
@@ -422,8 +455,56 @@ export class Session {
     this.#deferrals.delete(player)
     this.#starting.delete(player)
     const joined = player.state === 'joined'
+    // Players get slots as they join.
+    const { slot } = player
+    if (slot !== undefined) {
+      const { states } = this.server
+      states.unregisterTarget(slot)
+      states.remove(`player:${player.netId}`)
+      this.#slots.delete(slot)
+    }
     player.update({ state })
     player.client.leaveSession(joined)
+  }
+
+  /**
+   * Gives a player that joins a server with OneSync a slot, and its state
+   * bag, which it owns, and which routes to its client, as FiveM's servers
+   * do in OneSync's big mode. The client gets the bags that route to all.
+   */
+  #addStateBags(player: Player): void {
+    const slot = freeSlot((taken) => this.#slots.has(taken))
+    player.update({ slot })
+    this.#slots.set(slot, player)
+    const { states } = this.server
+    const bag = states.register(`player:${player.netId}`)
+    bag.owner = slot
+    bag.addRoutingTarget(slot)
+    states.registerTarget(slot)
+  }
+
+  /** @internal Called by the state bags of the server as they send a key to the client of a slot, which takes it at its next tick. */
+  sendStateBag(slot: number, bag: string, key: string, data: Uint8Array): void {
+    // The bags send to no slot that no player has, which they forget as players leave.
+    const player = this.#slots.get(slot)!
+    const bytes = data.slice()
+    // Clients of FiveM take what their server sends as from its peer 0.
+    player.client.receive(() => player.client.states.receive(0, bag, key, bytes))
+  }
+
+  /**
+   * @internal Called by a client that sends its server a key of a state
+   * bag, which the server takes at its next tick, as from the slot of its
+   * player: unless its state bags are in strict mode.
+   */
+  receiveStateBag(player: Player, bag: string, key: string, data: Uint8Array): void {
+    const bytes = data.slice()
+    const { server } = this
+    server.receive(() => {
+      const { slot } = player
+      if (server.strictStateBags || slot === undefined) return
+      server.states.receive(slot, bag, key, bytes)
+    })
   }
 
   /** @internal Called by the server with the replicated variables that changed, which the clients that joined take. */
