@@ -1,5 +1,11 @@
 export { CFunction, FIVEM_LIBS, LuaLib } from './abi.ts'
-export { LuaError, LuaFatalError, type LuaErrorKind } from './errors.ts'
+export {
+  LuaArgumentError,
+  LuaCallerError,
+  LuaError,
+  LuaFatalError,
+  type LuaErrorKind,
+} from './errors.ts'
 export {
   LuaRuntime,
   type LuaRuntimeOptions,

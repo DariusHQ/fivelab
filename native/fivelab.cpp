@@ -130,9 +130,25 @@ static int fl_msgh(lua_State *L) {
   return 1;
 }
 
+/*
+** Calls a host function. A host function that fails leaves its message on
+** the stack, and says how to raise it: -1 as it is, -2 as luaL_argerror
+** does, with the index of the argument above the message, and -3 as
+** luaL_error does, after the position of the caller.
+*/
 static int fl_hostfunction(lua_State *L) {
   int fn = static_cast<int>(lua_tointeger(L, lua_upvalueindex(1)));
   int n = fl_host_call(fl_state(L)->vm, L, fn, lua_gettop(L));
+  if (n == -2) {
+    int arg = static_cast<int>(lua_tointeger(L, -1));
+    lua_pop(L, 1);
+    return luaL_argerror(L, arg, lua_tostring(L, -1));
+  }
+  if (n == -3) {
+    luaL_where(L, 1);
+    lua_insert(L, -2);
+    lua_concat(L, 2);
+  }
   if (n < 0)
     return lua_error(L);
   return n;

@@ -35,6 +35,30 @@ export class LuaError extends Error {
 }
 
 /**
+ * Thrown by a host function for a bad argument, which Lua reports as
+ * luaL_argerror does: "bad argument #n to 'name' (message)", with the
+ * position of the caller, naming the function as the script called it.
+ */
+export class LuaArgumentError extends Error {
+  override readonly name = 'LuaArgumentError'
+  /** The index of the argument, from 1. */
+  readonly argument: number
+
+  constructor(argument: number, message: string) {
+    super(message)
+    this.argument = argument
+  }
+}
+
+/**
+ * Thrown by a host function to raise a Lua error as luaL_error does: with
+ * the position of the Lua code that called it before the message.
+ */
+export class LuaCallerError extends Error {
+  override readonly name = 'LuaCallerError'
+}
+
+/**
  * A Lua state, or the whole runtime hosting it, can no longer run code: Lua
  * panicked, the watchdog stopped a runaway script, or the WebAssembly module
  * trapped. Every later call fails with the same error.

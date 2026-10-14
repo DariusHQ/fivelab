@@ -18,7 +18,13 @@ import {
   VECTOR_KIND,
   type Ptr,
 } from './abi.ts'
-import { LuaError, LuaFatalError, isStackOverflow } from './errors.ts'
+import {
+  isStackOverflow,
+  LuaArgumentError,
+  LuaCallerError,
+  LuaError,
+  LuaFatalError,
+} from './errors.ts'
 import type { LuaRuntime } from './runtime.ts'
 import { LuaFloat, LuaVector, type LuaVectorType } from './values.ts'
 
@@ -116,7 +122,13 @@ const TYPE_NAMES: Record<number, string> = {
 
 /** The message Lua receives for an exception thrown by a host function. */
 function errorMessage(error: unknown): string {
-  if (error instanceof LuaError) return error.message
+  if (
+    error instanceof LuaError ||
+    error instanceof LuaArgumentError ||
+    error instanceof LuaCallerError
+  ) {
+    return error.message
+  }
   try {
     return String(error)
   } catch {
@@ -567,7 +579,11 @@ export class LuaState {
         throw this.runtime.crash(error)
       }
       this.#pushInLua(L, errorMessage(error))
-      return -1
+      if (error instanceof LuaArgumentError) {
+        this.#pushInLua(L, error.argument)
+        return -2
+      }
+      return error instanceof LuaCallerError ? -3 : -1
     } finally {
       this.#threads.pop()
     }

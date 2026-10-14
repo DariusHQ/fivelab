@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   CFunction,
+  LuaArgumentError,
+  LuaCallerError,
   LuaError,
   LuaRef,
   LuaVector,
@@ -88,6 +90,34 @@ describe('host functions', () => {
     ])
     expect(() => lua.run(`typeError()`, '=test')).toThrow(LuaError)
     expect(lua.run(`return 'alive'`, '=test')).toEqual(['alive'])
+  })
+
+  it('raise errors of arguments and of their callers as luaL_argerror and luaL_error do', async () => {
+    const lua = (await createRuntime()).newState()
+    const throwing = (error: Error) =>
+      lua.hostFunction(() => {
+        throw error
+      })
+    lua.setGlobal('second', throwing(new LuaArgumentError(2, 'number expected, got nil')))
+    lua.setGlobal('first', throwing(new LuaArgumentError(1, 'table expected, got string')))
+    lua.setGlobal('caller', throwing(new LuaCallerError("field 'day' missing in date table")))
+    expect(
+      lua.run(
+        `local t = { first = first }
+return select(2, pcall(function() second(1) end)),
+  select(2, pcall(function() t.first('x') end)),
+  select(2, pcall(function() t:first() end)),
+  select(2, pcall(function()
+    caller()
+  end))`,
+        '=test',
+      ),
+    ).toEqual([
+      "test:2: bad argument #2 to 'second' (number expected, got nil)",
+      "test:3: bad argument #1 to 'first' (table expected, got string)",
+      "test:4: calling 'first' on bad self (table expected, got string)",
+      "test:6: field 'day' missing in date table",
+    ])
   })
 
   it('can call back into their own state on the calling thread', async () => {
