@@ -34,6 +34,40 @@ describe('Hook', () => {
     expect(ran).toEqual(['0: a 2', '1: a 2'])
   })
 
+  it('disconnects callbacks by the cookies it counts from 0, and says whether any is connected', () => {
+    const hook = new Hook()
+    const ran: string[] = []
+    expect(hook.connected).toBe(false)
+    const cookies = ['a', 'b', 'c'].map((name, i) =>
+      hook.connect(() => {
+        ran.push(name)
+      }, 2 - i),
+    )
+    hook.disconnect(cookies[1]!)
+    hook.disconnect(99)
+    hook.run()
+    hook.disconnect(cookies[2]!)
+    expect([cookies, ran, hook.connected]).toEqual([[0, 1, 2], ['c', 'a'], true])
+    hook.disconnect(cookies[0]!)
+    expect(hook.connected).toBe(false)
+  })
+
+  it('runs a callback disconnected right after the one running, as FiveM finds it first', () => {
+    const hook = new Hook()
+    const ran: string[] = []
+    let next = -1
+    hook.connect(() => {
+      ran.push('first')
+      hook.disconnect(next)
+    })
+    next = hook.connect(() => {
+      ran.push('next')
+    })
+    hook.run()
+    hook.run()
+    expect(ran).toEqual(['first', 'next', 'first'])
+  })
+
   it('stops at a callback that returns false, and returns false', () => {
     const hook = new Hook()
     const ran: string[] = []
