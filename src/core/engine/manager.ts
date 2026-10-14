@@ -20,6 +20,7 @@ import {
   type Side,
 } from '../natives/index.ts'
 import { CLOCK_START, type ScriptRuntime, type StackBoundaries } from '../scripting/runtime.ts'
+import { localTimeZone, type TimeZone } from '../scripting/time.ts'
 import { ConsoleBuffer } from './buffer.ts'
 import {
   configureServerVariables,
@@ -87,6 +88,10 @@ export interface ResourceManagerOptions {
   readonly files?: FileSystem
   /** On servers, what sends the HTTP requests of scripts, as FiveM's server does with curl: fetch by default. */
   readonly http?: HttpClient
+  /** Milliseconds since the epoch, by the wall clock, which os.time reads: Date.now by default. */
+  readonly wallClock?: () => number
+  /** The time zone of local times, as os.date and os.time take them: that of the host by default. */
+  readonly timeZone?: TimeZone
 }
 
 /** What a function reference names; see ResourceManager.lookUpRef. */
@@ -167,6 +172,11 @@ export class ResourceManager {
    */
   #suppressErrors = false
   readonly #time: () => number
+  readonly #wallClock: () => number
+  /** The time zone of local times, as os.date and os.time take them. */
+  readonly timeZone: TimeZone
+  /** How many names os.tmpname gave, across the process, as FiveM counts them. */
+  #temporaryNames = 0
   readonly #resources = new Map<string, Resource>()
   /** The resources that provide each name, as their provide entries say, in the order they were added. */
   readonly #provides = new Map<string, Resource[]>()
@@ -202,6 +212,8 @@ export class ResourceManager {
     this.lua = options.lua
     this.output = options.output
     this.#time = options.time
+    this.#wallClock = options.wallClock ?? Date.now
+    this.timeZone = options.timeZone ?? localTimeZone()
     this.kvp = options.kvp ?? new KvpStore()
     this.files = options.files ?? new MemoryFileSystem()
     this.http = options.http ?? fetchHttpClient
@@ -320,6 +332,16 @@ export class ResourceManager {
   /** The clock that threads wait by, in whole microseconds; see CLOCK_START. */
   clock(): number {
     return CLOCK_START + Math.floor(this.#time() * 1000)
+  }
+
+  /** Milliseconds since the epoch, by the wall clock of the process. */
+  wallClock(): number {
+    return this.#wallClock()
+  }
+
+  /** The number of the next name that os.tmpname gives, from 1. */
+  nextTemporaryName(): number {
+    return ++this.#temporaryNames
   }
 
   /** The resource whose script code is running, which GetCurrentResourceName names. */

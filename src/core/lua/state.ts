@@ -221,6 +221,49 @@ export class HostArgs {
     if (this.type(index) !== LUA_TSTRING) return null
     return this.state.readBytes(this.L, index)
   }
+
+  /** Whether an argument converts to an integer, as lua_tointegerx tells. */
+  isIntegral(index: number): boolean {
+    return this.state.runtime.exports.fl_isintegral(this.L, index) !== 0
+  }
+
+  /** Whether an argument is a number or a string that converts to one, as lua_isnumber tells. */
+  isNumber(index: number): boolean {
+    return this.state.runtime.exports.fl_isnumber(this.L, index) !== 0
+  }
+
+  /**
+   * The bytes of an argument as lua_tolstring reads them: those of a
+   * string, or of a number as Lua writes it, which it turns into that
+   * string in place, as luaL_checkstring does, or null for other types.
+   */
+  stringBytes(index: number): Uint8Array | null {
+    const type = this.type(index)
+    if (type !== LUA_TSTRING && type !== LUA_TNUMBER) return null
+    return this.state.readBytes(this.L, index)
+  }
+
+  /** An argument as lua_toboolean reads it: false for nil and false, true for any other value. */
+  boolean(index: number): boolean {
+    return this.state.runtime.exports.fl_toboolean(this.L, index) !== 0
+  }
+
+  /**
+   * Reads the field `key` of an argument with `read`, as C code reads it
+   * after lua_getfield, through the metamethods of the argument, whose
+   * errors reach the script that called the function: `read` gets the
+   * index of the field, as the arguments give it, while it is there.
+   */
+  withField<T>(index: number, key: string, read: (at: number) => T): T {
+    const ex = this.state.runtime.exports
+    this.state.push(this.L, key)
+    ex.fl_gettable(this.L, index)
+    try {
+      return read(ex.fl_gettop(this.L))
+    } finally {
+      ex.fl_settop(this.L, -2)
+    }
+  }
 }
 
 /**
@@ -347,6 +390,36 @@ export class LuaState {
       },
       options.onMain === true ? this.L : undefined,
     )
+  }
+
+  /**
+   * A new table with `fields`, as lua_createtable makes one with room for
+   * them, which lua_setfield then fills in their order.
+   */
+  createTable(fields: readonly (readonly [key: string, value: LuaValue])[]): LuaRef {
+    return this.#enter((L) => {
+      const ex = this.runtime.exports
+      ex.fl_createtable(L, 0, fields.length)
+      for (const [key, value] of fields) {
+        this.push(L, key)
+        this.push(L, value)
+        ex.fl_rawset(L, -3)
+      }
+      return this.#popRef(L)
+    })
+  }
+
+  /**
+   * Loads `library` by `name`, as luaL_requiref loads the libraries of C
+   * with a global: as a loaded module, which require returns and errors
+   * name its functions by, and as the global of its name.
+   */
+  setLibrary(name: string, library: LuaValue): void {
+    this.#enter((L) => {
+      this.push(L, name)
+      this.push(L, library)
+      this.runtime.exports.fl_setlib(L)
+    })
   }
 
   /** Reads a global without invoking metamethods. */

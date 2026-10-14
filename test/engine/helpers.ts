@@ -11,6 +11,7 @@ import {
   type ResourceDefinition,
 } from '../../src/core/engine/index.ts'
 import type { NativeDefinition, Side } from '../../src/core/natives/index.ts'
+import type { TimeZone } from '../../src/core/scripting/time.ts'
 import { createRuntime } from '../lua/helpers.ts'
 
 export interface ProcessOptions {
@@ -21,6 +22,8 @@ export interface ProcessOptions {
   readonly kvp?: KvpStore
   readonly files?: FileSystem
   readonly http?: HttpClient
+  readonly wallClock?: () => number
+  readonly timeZone?: TimeZone
 }
 
 /** The files of a resource, by their paths in it. */
@@ -96,6 +99,8 @@ export async function createProcess(options: ProcessOptions = {}): Promise<TestP
       ...(options.kvp === undefined ? {} : { kvp: options.kvp }),
       ...(options.files === undefined ? {} : { files: options.files }),
       ...(options.http === undefined ? {} : { http: options.http }),
+      ...(options.wallClock === undefined ? {} : { wallClock: options.wallClock }),
+      ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }),
     }),
     time: 0,
     warnings,

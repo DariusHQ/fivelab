@@ -72,6 +72,60 @@ describe('MemoryFileSystem', () => {
     expect(files.list('a/x/y')).toEqual([])
     expect(() => files.makeDirectory('a/b.txt/c')).toThrow(new Error('There is a file at a/b.txt'))
   })
+
+  it('removes files, but no directories', () => {
+    const files = new MemoryFileSystem({ 'a/b.txt': 'b', 'a/c/d.txt': 'd' })
+    expect([files.remove('a/b.txt'), files.remove('a/b.txt'), files.remove('a/c')]).toEqual([
+      true,
+      false,
+      false,
+    ])
+    expect([files.list('a'), files.read('a/b.txt'), files.read('a/c/d.txt')]).toEqual([
+      [{ name: 'c', directory: true }],
+      undefined,
+      encode('d'),
+    ])
+  })
+
+  it('moves files and directories with what they hold, but not onto what is there', () => {
+    const files = new MemoryFileSystem({
+      'a/b.txt': 'b',
+      'a/c/d.txt': 'd',
+      'a/c/e/f.txt': 'f',
+      'x/y.txt': 'y',
+    })
+    const results = [
+      files.rename('a/b.txt', 'x/b.txt'),
+      files.rename('a/c', 'x/c'),
+      files.rename('x/y.txt', 'x/b.txt'),
+      files.rename('x/y.txt', 'x/c'),
+      files.rename('x/y.txt', 'z/y.txt'),
+      files.rename('x/c', 'x/c/inside'),
+      files.rename('a/none.txt', 'x/none.txt'),
+    ]
+    expect(results).toEqual([true, true, false, false, false, false, false])
+    expect([
+      files.list('a'),
+      files.list('x'),
+      files.read('x/c/d.txt'),
+      files.read('x/c/e/f.txt'),
+      files.list('x/c/e'),
+      files.list('a/c'),
+      files.read('a/c/d.txt'),
+    ]).toEqual([
+      [],
+      [
+        { name: 'y.txt', directory: false },
+        { name: 'b.txt', directory: false },
+        { name: 'c', directory: true },
+      ],
+      encode('d'),
+      encode('f'),
+      [{ name: 'f.txt', directory: false }],
+      undefined,
+      undefined,
+    ])
+  })
 })
 
 describe('addFile', () => {
