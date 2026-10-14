@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { INT32_MIN } from '../../src/core/engine/hook.ts'
+import { INT32_MIN } from '../../src/core/hook.ts'
 import { Session } from '../../src/core/engine/index.ts'
 import { createProcess, join, type TestProcess } from './helpers.ts'
 

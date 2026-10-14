@@ -1,8 +1,8 @@
+import { Hook } from '../hook.ts'
 import { ScriptRuntime, type ScriptHost } from '../scripting/runtime.ts'
 import { NativeContext } from './context.ts'
 import { addFile, MemoryFileSystem, type FileSystem } from './files.ts'
 import { glob, normalizePath } from './glob.ts'
-import { Hook } from './hook.ts'
 import type { ResourceManager } from './manager.ts'
 import {
   clientNativesFile,

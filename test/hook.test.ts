@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { Hook } from '../../src/core/engine/hook.ts'
+import { Hook } from '../src/core/hook.ts'
 
 describe('Hook', () => {
   it('runs callbacks by ascending order, and those of the same order as they were connected', () => {
@@ -20,6 +20,18 @@ describe('Hook', () => {
     })
     expect(hook.run()).toBe(true)
     expect(ran).toEqual(['a', 'b', 'b again', 'c'])
+  })
+
+  it('gives each callback what it runs with', () => {
+    const hook = new Hook<[string, number]>()
+    const ran: string[] = []
+    for (const order of [1, 0]) {
+      hook.connect((name, count) => {
+        ran.push(`${order}: ${name} ${count}`)
+      }, order)
+    }
+    hook.run('a', 2)
+    expect(ran).toEqual(['0: a 2', '1: a 2'])
   })
 
   it('stops at a callback that returns false, and returns false', () => {

@@ -8,6 +8,7 @@ import {
   Printer,
   Security,
 } from '../console/index.ts'
+import { INT32_MIN } from '../hook.ts'
 import { LuaError, type LuaRuntime } from '../lua/index.ts'
 import {
   catalogNatives,
@@ -27,7 +28,6 @@ import { Dependencies } from './dependencies.ts'
 import { EventManager } from './events.ts'
 import { MemoryFileSystem, type FileSystem } from './files.ts'
 import { normalizePath } from './glob.ts'
-import { INT32_MIN } from './hook.ts'
 import { KvpStore } from './kvp.ts'
 import { atoi, compareUtf8, strtoull } from '../libc.ts'
 import { isFxVersionAtLeast } from './manifest.ts'
