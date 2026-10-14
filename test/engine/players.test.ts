@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { Session, type PlayerIdentity } from '../../src/core/engine/index.ts'
-import { createProcess, runCommand, type TestProcess } from './helpers.ts'
+import { createProcess, join, runCommand, type TestProcess } from './helpers.ts'
 
 /** A manifest for clients that runs main.lua, with natives FiveLab has. */
 const CLIENT_SCRIPT = [
@@ -32,6 +32,9 @@ async function sessionOf(
     session.connect(client.manager, identity)
     clients.push(client)
   }
+  // The server lets them connect at its next tick, and gives them their net ids at the one after.
+  server.manager.tick()
+  server.manager.tick()
   let count = 0
   const runAll = (code: string) => {
     server.add(`run${count++}`, { 'main.lua': code }).start()
@@ -77,7 +80,8 @@ print(pcall(GetPlayerName, nil))`),
       'license2:bb\tlicense:aa',
       'ip:10.0.0.1\tnil\tnil',
       '2\t3:xx,4:yy\tnil',
-      'player\t2\t127.0.0.1\t0',
+      // By default, players have the temporary net ids they connected with for GUIDs.
+      'player\t65537\t127.0.0.1\t0',
       'nil\tnil\tnil\t0',
       'nil\tnil\t0',
       'false\tnative 00000000a61c8fc6: Argument at index 1 was null.',
@@ -116,7 +120,7 @@ print(table.concat(GetPlayers(), ','))`),
     const { server, clients, session, run } = await sessionOf({})
     server.time = 1000
     const client = await createProcess({ side: 'client' })
-    const player = session.connect(client.manager, {})
+    const player = join(session, client.manager)
     clients.push(client)
     server.time = 1500
     // The server heard from the client as it connected.
@@ -216,7 +220,7 @@ print(DropPlayer(9, nil), DropPlayer(1, 'bye'), DropPlayer(9, 'nobody'))`),
     const { session } = await sessionOf({}, {}, {})
     session.player(2)!.quit()
     const client = await createProcess({ side: 'client' })
-    expect(session.connect(client.manager).netId).toBe(3)
+    expect(join(session, client.manager).netId).toBe(3)
   })
 
   it('tells the other clients without OneSync, with onPlayerDropped', async () => {

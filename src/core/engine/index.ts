@@ -26,5 +26,7 @@ export {
   SERVER_DROP_RESOURCE,
   SERVER_NET_ID,
   Session,
+  TEMPORARY_NET_IDS,
   type PlayerIdentity,
+  type PlayerState,
 } from './session.ts'

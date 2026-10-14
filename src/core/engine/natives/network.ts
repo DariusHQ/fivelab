@@ -1,7 +1,7 @@
 import { atoi } from '../../libc.ts'
 import { defineNative, type NativeDefinition, type Side } from '../../natives/index.ts'
 import type { NativeContext } from '../context.ts'
-import { SERVER_NET_ID } from '../session.ts'
+import { SERVER_NET_ID, type Player } from '../session.ts'
 import { checkArgument } from './events.ts'
 
 /** The size from which FiveM's server warns about the events it sends clients. */
@@ -64,6 +64,8 @@ export function networkNatives(side: Side): NativeDefinition<NativeContext>[] {
   }
   /** When the server last warned about a large event, as FiveM's keeps it. */
   let lastWarning: number | undefined
+  /** Whether the server warned about events sent to the old net ids of players, which FiveM does once. */
+  let warnedOfOldNetIds = false
   return [
     defineNative(
       {
@@ -95,11 +97,25 @@ export function networkNatives(side: Side): NativeDefinition<NativeContext>[] {
         const session = manager.session
         if (session === undefined) return
         const source = `net:${SERVER_NET_ID}`
+        // Only clients that joined have a connection for the event to go through.
+        const send = (player: Player) => {
+          if (player.state === 'joined') player.client.events.queue(name, payload, source)
+        }
         if (target === '-1') {
-          for (const { client } of session.players) client.events.queue(name, payload, source)
+          for (const player of session.players) send(player)
           return
         }
-        session.player(atoi(target))?.client.events.queue(name, payload, source)
+        const netId = atoi(target)
+        const player = session.player(netId)
+        if (player === undefined) return
+        if (player.netId !== netId && !warnedOfOldNetIds) {
+          warnedOfOldNetIds = true
+          ctx.runtime.emitWarning(
+            'natives',
+            `TRIGGER_CLIENT_EVENT_INTERNAL: client ${player.netId} is not the same as the target ${netId}. This happens when the oldId from the playerJoining event is used. Use source instead.\n`,
+          )
+        }
+        send(player)
       },
     ),
   ]

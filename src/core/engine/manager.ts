@@ -159,6 +159,8 @@ export class ResourceManager {
   #configured = false
   #session: Session | undefined
   #player: Player | undefined
+  /** What the next tick runs first, as FiveM's main thread runs what its other threads give it. */
+  readonly #queued: (() => void)[] = []
 
   constructor(options: ResourceManagerOptions) {
     this.side = options.side
@@ -423,7 +425,10 @@ export class ResourceManager {
    * that are due in all runtimes. It takes the due threads of every runtime
    * before it resumes any, so that threads queued during the tick wait for
    * the next one. A client tells its server it is there first, as FiveM's
-   * do with the packets they send every frame.
+   * do with the packets they send every frame. Last, the tick runs what was
+   * enqueued for it, as FiveM's main thread runs what other threads give it
+   * between frames, so that threads that wait meanwhile resume at the next
+   * tick.
    */
   tick(): void {
     this.#player?.touch()
@@ -435,6 +440,15 @@ export class ResourceManager {
       // A runtime closed by a thread that ran before it has nothing to resume.
       if (resource.runtime === runtime) resource.enter(() => runtime.resume())
     }
+    for (const fn of this.#queued.splice(0)) fn()
+  }
+
+  /**
+   * Runs `fn` at the end of the next tick, as FiveM's main thread runs what
+   * the threads of its network give it, such as players that connect.
+   */
+  enqueue(fn: () => void): void {
+    this.#queued.push(fn)
   }
 
   /** Prints on the console on `channel`, as FiveM's console::Printf does; see Printer. */

@@ -115,7 +115,8 @@ export function playerNatives(side: Side): NativeDefinition<NativeContext>[] {
       },
       (ctx: NativeContext, playerSrc, reason) => {
         const player = playerOf(ctx, playerSrc)
-        if (player === undefined) return false
+        // FiveM drops no player that has no net id yet.
+        if (player === undefined || !player.connected) return false
         const resource = ctx.manager.currentResource?.name ?? ''
         player.session.drop(player, checkArgument(reason, 1), resource, DropReason.resource)
         return true
@@ -139,7 +140,8 @@ export function playerNatives(side: Side): NativeDefinition<NativeContext>[] {
     defineNative(
       { name: 'GET_NUM_PLAYER_INDICES', result: 'int', params: [] },
       (ctx: NativeContext) => {
-        listed = Array.from(ctx.manager.session?.players ?? [])
+        // FiveM lists the players that have their net ids.
+        listed = Array.from(ctx.manager.session?.players ?? []).filter(({ connected }) => connected)
         return listed.length
       },
     ),

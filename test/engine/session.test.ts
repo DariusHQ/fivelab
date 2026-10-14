@@ -17,6 +17,9 @@ async function sessionWith(count: number): Promise<{
     session.connect(client.manager)
     clients.push(client)
   }
+  // The server lets them connect at its next tick, and gives them their net ids at the one after.
+  server.manager.tick()
+  server.manager.tick()
   return { server, clients, session }
 }
 
@@ -123,6 +126,10 @@ TriggerClientEvent('hello', '2nd', 'as atoi reads it')
 TriggerClientEvent('hello', 3, 'nobody')`,
       })
       .start()
+    expect(server.take()).toEqual([
+      '[citizen-scripting-core] Creating script environments for a',
+      '[resources] Started resource a',
+    ])
     expect(clients.map(scripts)).toEqual([[], []])
     session.tick()
     expect(clients.map(scripts)).toEqual([

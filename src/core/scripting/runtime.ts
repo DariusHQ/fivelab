@@ -365,6 +365,14 @@ export class ScriptRuntime implements NativeCaller {
     this.host.diagnose(message)
   }
 
+  /**
+   * Reports a warning of FiveM's own code on `channel`, as its Lua runtime's
+   * EmitWarning does: as a Lua warning, [channel] message.
+   */
+  emitWarning(channel: string, message: string): void {
+    this.host.warn(`[${channel}] ${message}`)
+  }
+
   /** Says once for each native that the scripts called it but FiveLab does not implement it. */
   unimplemented(name: string, hash: bigint): void {
     if (this.#unimplemented.has(hash)) return

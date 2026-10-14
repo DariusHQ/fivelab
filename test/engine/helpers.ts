@@ -2,6 +2,9 @@ import {
   ResourceManager,
   type FileSystem,
   type KvpStore,
+  type Player,
+  type PlayerIdentity,
+  type Session,
   type NativeContext,
   type Resource,
   type ResourceDefinition,
@@ -114,4 +117,20 @@ export async function createProcess(options: ProcessOptions = {}): Promise<TestP
     },
   }
   return process
+}
+
+/**
+ * Connects a client to a session and ticks the server until it joined,
+ * which takes two ticks: one to trigger playerConnecting, which lets it
+ * connect without deferrals, then one to give it its net id.
+ */
+export function join(
+  session: Session,
+  client: ResourceManager,
+  identity: PlayerIdentity = {},
+): Player {
+  const player = session.connect(client, identity)
+  session.server.tick()
+  session.server.tick()
+  return player
 }
