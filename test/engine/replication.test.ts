@@ -64,7 +64,8 @@ describe('Replicated variables', () => {
       runCommand(server.manager, line, 'system.console')
     }
     server.manager.tick()
-    expect(changed).toEqual(['sv_D', 'sv_c', 'sv_B', 'sv_a'])
+    // The variables of the server's own that replicate go with the others.
+    expect(changed).toEqual(['sv_D', 'sv_c', 'sv_protectServerEntities', 'sv_B', 'sv_a'])
   })
 
   it('reach no client that has not joined', async () => {

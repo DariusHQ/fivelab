@@ -43,9 +43,9 @@ function stringKeys(object: MsgpackObject & { type: 'map' }): Map<string, Msgpac
  * a method, GET by default, headers when they are a map, as Lua makes
  * empty tables arrays, a URL, a body and whether to follow redirects, not
  * by default. Fields that are nil are as good as missing, and those of
- * another type fail the call.
+ * another type fail the call. URLs to the server's own name go to `port`.
  */
-function readRequest(data: Uint8Array): HttpRequest {
+function readRequest(data: Uint8Array, port: number): HttpRequest {
   const object = unpackObject(data)
   if (object.type !== 'map') throw new NativeError('invalid msgpack type')
   const fields = stringKeys(object)
@@ -68,7 +68,7 @@ function readRequest(data: Uint8Array): HttpRequest {
   const bytes = body?.bytes ?? new Uint8Array()
   return {
     method: method === undefined ? 'GET' : text(method),
-    url: rewriteNucleusUrl(url === undefined ? '' : text(url)),
+    url: rewriteNucleusUrl(url === undefined ? '' : text(url), port),
     headers: curlHeaders(headers, bytes.length > 0),
     body: bytes,
     followLocation: followLocation?.value ?? false,
@@ -142,9 +142,9 @@ export function httpNatives(): NativeDefinition<NativeContext>[] {
         params: ['object requestData'],
       },
       (ctx: NativeContext, requestData) => {
-        const request = readRequest(checkArgument(requestData, 0))
-        const token = nextToken++
         const { manager, resource } = ctx
+        const request = readRequest(checkArgument(requestData, 0), manager.primaryPort)
+        const token = nextToken++
         // FiveM queues the response for the resource alone, which gets it at the next tick.
         void manager.http(request).then((result) => {
           manager.events.queue(RESPONSE_EVENT, responseArgs(token, result), '', resource)

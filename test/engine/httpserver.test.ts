@@ -54,7 +54,7 @@ describe('The HTTP server of a server', () => {
       runCommand(proc.manager, `set web_baseUrl ${url}`, 'system.console')
       return send(proc, '/').got
     })
-    const versionJson = chunked(200, '{"version":"FXServer-master SERVER v1.0.0.37175 linux"}')
+    const versionJson = chunked(200, '{"version":"FXServer-master SERVER v1.0.0.37175 win32"}')
     expect([version, missing, joined, described]).toEqual([
       versionJson,
       [

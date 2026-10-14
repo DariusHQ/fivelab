@@ -173,7 +173,7 @@ EnableEnhancedHostSupport(false)
 print(GetConvar('sv_enhancedHostSupport', 'd'))
 EnableEnhancedHostSupport(true)`,
       }),
-    ).toEqual(['[script:a] 0'])
+    ).toEqual(['[script:a] false'])
     const { variables } = manager.console
     const values = ['plain', 'info', 'replicated', 'gametype', 'mapname', 'sv_enhancedHostSupport']
     expect(values.map((name) => [variables.find(name)?.value, variables.flagsOf(name)])).toEqual([
@@ -182,7 +182,8 @@ EnableEnhancedHostSupport(true)`,
       ['r', VariableFlags.modified | VariableFlags.replicated],
       ['Freeroam', VariableFlags.modified],
       ['San Andreas', VariableFlags.modified],
-      ['1', VariableFlags.modified],
+      // The server has the variable, a boolean that says what it holds.
+      ['true', VariableFlags.modified | VariableFlags.serverInfo],
     ])
   })
 

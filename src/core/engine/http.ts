@@ -89,19 +89,16 @@ export function curlHeaders(headers: readonly HttpHeader[], body: boolean): Http
   return sent
 }
 
-/** The port that FiveM's server listens on first, by default, which FiveLab gives as it listens nowhere. */
-const PRIMARY_PORT = 30120
-
 /** The hosts of FiveM's own servers, whose names end with it. */
 const NUCLEUS_SUFFIX = '.users.cfx.re'
 
 /**
  * The URL that FiveM's server sends a request to: one to its own name, a
- * host under users.cfx.re, goes to itself, on localhost. Like FiveM, it
- * takes the host to run from the scheme to the first slash, or the end,
- * and to stop there or at a colon.
+ * host under users.cfx.re, goes to itself, on localhost at `port`, its
+ * primary port. Like FiveM, it takes the host to run from the scheme to
+ * the first slash, or the end, and to stop there or at a colon.
  */
-export function rewriteNucleusUrl(url: string): string {
+export function rewriteNucleusUrl(url: string, port: number): string {
   const scheme = url.indexOf('://')
   if (scheme === -1) return url
   const start = scheme + 3
@@ -111,7 +108,7 @@ export function rewriteNucleusUrl(url: string): string {
   const colon = authority.indexOf(':')
   const host = colon === -1 ? authority : authority.slice(0, colon)
   if (host.length <= NUCLEUS_SUFFIX.length || !host.endsWith(NUCLEUS_SUFFIX)) return url
-  return `http://localhost:${PRIMARY_PORT}${url.slice(end)}`
+  return `http://localhost:${port}${url.slice(end)}`
 }
 
 const decoder = new TextDecoder()

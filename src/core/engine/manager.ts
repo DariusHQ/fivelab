@@ -21,6 +21,11 @@ import {
 } from '../natives/index.ts'
 import { CLOCK_START, type ScriptRuntime, type StackBoundaries } from '../scripting/runtime.ts'
 import { ConsoleBuffer } from './buffer.ts'
+import {
+  configureServerVariables,
+  defineServerVariables,
+  type ServerEndpoints,
+} from './builtins.ts'
 import { CALLBACK_RESOURCE, Callbacks } from './callbacks.ts'
 import { addConfigCommands } from './config.ts'
 import { addResourceCommands } from './control.ts'
@@ -179,6 +184,8 @@ export class ResourceManager {
   readonly #reassembly: Variable
   /** sv_stateBagStrictMode, which keeps clients from setting state bags. */
   readonly #strictStateBags: Variable
+  /** On servers, what they keep of their endpoints. */
+  readonly #endpoints: ServerEndpoints | undefined
   /** What the network gave the process, which its next tick takes first. */
   readonly #received: (() => void)[] = []
   /** On clients, the names of the variables that their server created, and of those it changed, to take back as they leave it. */
@@ -257,6 +264,7 @@ export class ResourceManager {
         'bool',
         false,
       )
+      this.#endpoints = defineServerVariables(this, options.gameBuild ?? DEFAULT_GAME_BUILD)
       this.#startServerConsole()
     } else {
       // FiveM's client lets its own code set what servers replicate, among others.
@@ -287,6 +295,7 @@ export class ResourceManager {
         'bool',
         false,
       )
+      this.#endpoints = undefined
       // FiveM's client sends the bags it has to its server, and takes those of players as they come, as
       // those of entities, which FiveLab has none of.
       this.states.register('global', true)
@@ -573,6 +582,15 @@ export class ResourceManager {
    */
   endInitialConfiguration(): void {
     this.#configured = true
+    if (this.side === 'server') configureServerVariables(this)
+  }
+
+  /**
+   * On servers, the port of the first endpoint that takes TCP, or 0 before
+   * there is one, as FiveM's server gives its primary port.
+   */
+  get primaryPort(): number {
+    return this.#endpoints?.primaryPort ?? 0
   }
 
   /**

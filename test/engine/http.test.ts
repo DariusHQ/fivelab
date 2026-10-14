@@ -14,7 +14,7 @@ import {
   type HttpResponse,
 } from '../../src/core/engine/index.ts'
 import { fetchFailure } from '../../src/core/engine/http.ts'
-import { createProcess, startResource } from './helpers.ts'
+import { createProcess, runCommand, startResource } from './helpers.ts'
 
 const encoder = new TextEncoder()
 const bytes = (text: string) => encoder.encode(text)
@@ -208,13 +208,18 @@ print(PerformHttpRequestInternalEx({ url = 'http://b', followLocation = true }))
     expect(proc.take()).toEqual([])
   })
 
-  it('send what goes to the names of servers under users.cfx.re to the server itself', async () => {
+  it('send what goes to the names of servers under users.cfx.re to the server itself, at its primary port', async () => {
     const { requests, client } = recorder()
     const proc = await createProcess({ http: client })
-    startResource(proc, 'a', {
-      'main.lua': `PerformHttpRequest('https://me-abc123.users.cfx.re/a/b?c', print)`,
-    })
-    expect(requests.map(({ url }) => url)).toEqual(['http://localhost:30120/a/b?c'])
+    const request = `PerformHttpRequest('https://me-abc123.users.cfx.re/a/b?c', print)`
+    // Before the server takes an endpoint, it has no primary port.
+    startResource(proc, 'a', { 'main.lua': request })
+    runCommand(proc.manager, 'endpoint_add_tcp "0.0.0.0:30121"', 'system.console')
+    startResource(proc, 'b', { 'main.lua': request })
+    expect(requests.map(({ url }) => url)).toEqual([
+      'http://localhost:0/a/b?c',
+      'http://localhost:30121/a/b?c',
+    ])
   })
 
   it('fail for requests of maps with fields of other types', async () => {
@@ -307,7 +312,7 @@ describe('The URLs of the servers under users.cfx.re', () => {
         'https://a.users.cfx.re?x',
         'abc.users.cfx.re/x',
         'https://a.example.com/b.users.cfx.re',
-      ].map(rewriteNucleusUrl),
+      ].map((url) => rewriteNucleusUrl(url, 30120)),
     ).toEqual([
       'http://localhost:30120',
       'http://localhost:30120/x',
