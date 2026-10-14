@@ -7,6 +7,8 @@ import {
   EVERYONE,
   Printer,
   Security,
+  type Variable,
+  VariableFlags,
 } from '../console/index.ts'
 import { INT32_MIN } from '../hook.ts'
 import { LuaError, type LuaRuntime } from '../lua/index.ts'
@@ -29,6 +31,7 @@ import { EventManager } from './events.ts'
 import { MemoryFileSystem, type FileSystem } from './files.ts'
 import { normalizePath } from './glob.ts'
 import { KvpStore } from './kvp.ts'
+import { LatentEvents } from './latent.ts'
 import { atoi, compareUtf8, strtoull } from '../libc.ts'
 import { isFxVersionAtLeast } from './manifest.ts'
 import { arrayLength, pack } from './msgpack.ts'
@@ -131,6 +134,8 @@ export class ResourceManager {
   readonly oneSync: boolean
   readonly natives = new NativeRegistry<NativeContext>()
   readonly events = new EventManager(this)
+  /** The latent events that the process sends. */
+  readonly latent = new LatentEvents(this)
   /** The callbacks of the process's own code that scripts call as functions. */
   readonly callbacks = new Callbacks()
   /** What dependencies such as /server:5181 test, which only servers enforce. */
@@ -159,6 +164,8 @@ export class ResourceManager {
   #configured = false
   #session: Session | undefined
   #player: Player | undefined
+  /** sv_enableNetEventReassembly, which turns latent events on. */
+  readonly #reassembly: Variable
   /** On clients that left a session, whether they had joined it, until they reset their resources; see leaveSession. */
   #left: { readonly joined: boolean } | undefined
   /** On servers, the names of the resources that clients get, in the order they started. */
@@ -208,6 +215,12 @@ export class ResourceManager {
         if (!this.security.check(`command.${name}`)) return true
         return this.events.trigger('rconCommand', pack([name, args]))
       }, -100)
+      this.#reassembly = this.console.variables.define(
+        'sv_enableNetEventReassembly',
+        VariableFlags.none,
+        'bool',
+        true,
+      )
       this.#startServerConsole()
     } else {
       // FiveM's client lets its own code set what servers replicate, among others.
@@ -225,6 +238,13 @@ export class ResourceManager {
         player.session.command(player, this.console.commands.rawCommand)
         return false
       }, 99999)
+      // FiveM's client takes the variable from its server, which replicates it.
+      this.#reassembly = this.console.variables.define(
+        'sv_enableNetEventReassembly',
+        VariableFlags.replicated,
+        'bool',
+        true,
+      )
     }
     this.natives.register(
       ...catalogNatives<NativeContext>(this.side),
@@ -498,7 +518,8 @@ export class ResourceManager {
    * do with the packets they send every frame. Last, the tick runs what was
    * enqueued for it, as FiveM's main thread runs what other threads give it
    * between frames, so that threads that wait meanwhile resume at the next
-   * tick.
+   * tick, then sends latent events, as FiveM's network does while
+   * sv_enableNetEventReassembly is on.
    */
   tick(): void {
     this.#player?.touch()
@@ -511,6 +532,12 @@ export class ResourceManager {
       if (resource.runtime === runtime) resource.enter(() => runtime.resume())
     }
     for (const fn of this.#queued.splice(0)) fn()
+    if (this.reassembling) this.latent.tick()
+  }
+
+  /** Whether the process sends latent events, as sv_enableNetEventReassembly says. */
+  get reassembling(): boolean {
+    return this.#reassembly.rawValue === true
   }
 
   /**

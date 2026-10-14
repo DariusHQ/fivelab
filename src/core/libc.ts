@@ -49,6 +49,11 @@ export function stoi(text: string): number | undefined {
   return value < -(2n ** 31n) || value >= 2n ** 31n ? undefined : Number(value)
 }
 
+/** What MSVC's std::stoi throws with for text that stoi reads no int from. */
+export function stoiError(text: string): string {
+  return /^[\t-\r ]*[+-]?\d/.test(text) ? 'stoi argument out of range' : 'invalid stoi argument'
+}
+
 /**
  * C++'s std::stof as MSVC's runtime reads floats: the float at the start of
  * `text`, after whitespace and an optional sign, or undefined, where

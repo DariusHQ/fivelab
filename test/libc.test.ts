@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { stof, stoi } from '../src/core/libc.ts'
+import { stof, stoi, stoiError } from '../src/core/libc.ts'
 
 describe('stoi', () => {
   it('reads the int at the start of text, after whitespace and a sign', () => {
@@ -21,6 +21,17 @@ describe('stoi', () => {
     ]
     expect(texts.map(stoi)).toEqual(texts.map(() => undefined))
     expect([stoi('2147483647'), stoi('-2147483648')]).toEqual([2147483647, -2147483648])
+  })
+
+  it('throws, as MSVC says, when there is no int, or one that does not fit in 32 bits', () => {
+    const texts = ['', 'abc', '- 1', ' \t-2147483649', '+99999999999']
+    expect(texts.map(stoiError)).toEqual([
+      'invalid stoi argument',
+      'invalid stoi argument',
+      'invalid stoi argument',
+      'stoi argument out of range',
+      'stoi argument out of range',
+    ])
   })
 })
 

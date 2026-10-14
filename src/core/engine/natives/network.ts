@@ -1,5 +1,5 @@
-import { atoi } from '../../libc.ts'
-import { defineNative, type NativeDefinition, type Side } from '../../natives/index.ts'
+import { atoi, stoi, stoiError } from '../../libc.ts'
+import { defineNative, NativeError, type NativeDefinition, type Side } from '../../natives/index.ts'
 import type { NativeContext } from '../context.ts'
 import { SERVER_NET_ID, type Player } from '../session.ts'
 import { checkArgument } from './events.ts'
@@ -11,6 +11,14 @@ const LARGE_EVENT = 1_000_000
 const LARGE_EVENT_WARNINGS = 5000
 
 const NO_PAYLOAD = new Uint8Array(0)
+
+/** The net id of the server on clients, as the latent events they get from it say, unlike the others. */
+const LATENT_SERVER_NET_ID = 0
+
+/** What FiveM warns of when scripts send latent events while sv_enableNetEventReassembly is off. */
+function reassemblyOff(native: string): string {
+  return `${native} requires setr sv_enableNetEventReassembly true\n`
+}
 
 /**
  * The payload of a net event: none for a null pointer, which FiveM sends
@@ -58,6 +66,51 @@ export function networkNatives(side: Side): NativeDefinition<NativeContext>[] {
             return
           }
           player.session.server.events.queue(eventName, payload, `net:${player.netId}`)
+        },
+      ),
+      defineNative(
+        {
+          name: 'TRIGGER_LATENT_SERVER_EVENT_INTERNAL',
+          result: 'void',
+          params: ['char* eventName', 'buffer eventPayload', 'int payloadLength', 'int bps'],
+        },
+        (ctx: NativeContext, eventName, eventPayload, payloadLength, bps) => {
+          if (!ctx.manager.reassembling) {
+            ctx.runtime.emitWarning(
+              'natives',
+              reassemblyOff('TRIGGER_LATENT_SERVER_EVENT_INTERNAL'),
+            )
+            return
+          }
+          if (eventName === null) {
+            ctx.diagnose(
+              'TriggerLatentServerEventInternal was given no event name: FiveM would read it from nowhere, and crash. FiveLab sends nothing.',
+            )
+            return
+          }
+          const payload = payloadOf(
+            ctx,
+            'TriggerLatentServerEventInternal',
+            eventPayload,
+            payloadLength,
+          )
+          const { player } = ctx.manager
+          if (player === undefined) {
+            ctx.diagnose(
+              `TriggerLatentServerEvent sent ${eventName} to no server, as FiveLab's client is not connected to one.`,
+            )
+          }
+          const deliveries =
+            player === undefined
+              ? []
+              : [
+                  () => {
+                    const source = `net:${player.netId}`
+                    if (player.state === 'joined')
+                      player.session.server.events.queue(eventName, payload, source)
+                  },
+                ]
+          ctx.manager.latent.send(eventName, payload, bps, deliveries)
         },
       ),
     ]
@@ -116,6 +169,45 @@ export function networkNatives(side: Side): NativeDefinition<NativeContext>[] {
           )
         }
         send(player)
+      },
+    ),
+    defineNative(
+      {
+        name: 'TRIGGER_LATENT_CLIENT_EVENT_INTERNAL',
+        result: 'void',
+        params: [
+          'char* eventName',
+          'char* eventTarget',
+          'buffer eventPayload',
+          'int payloadLength',
+          'int bps',
+        ],
+      },
+      (ctx: NativeContext, eventName, eventTarget, eventPayload, payloadLength, bps) => {
+        const { manager } = ctx
+        if (!manager.reassembling) {
+          ctx.runtime.emitWarning('natives', reassemblyOff('TRIGGER_LATENT_CLIENT_EVENT_INTERNAL'))
+          return
+        }
+        const name = checkArgument(eventName, 0)
+        const target = checkArgument(eventTarget, 1)
+        const payload = payloadOf(
+          ctx,
+          'TriggerLatentClientEventInternal',
+          eventPayload,
+          payloadLength,
+        )
+        const netId = stoi(target)
+        if (netId === undefined) throw new NativeError(stoiError(target))
+        // FiveM sends latent events to the players that joined, by the net ids they have.
+        const targets = [...(manager.session?.players ?? [])].filter(
+          (player) => player.state === 'joined' && (netId === -1 || player.netId === netId),
+        )
+        const source = `net:${LATENT_SERVER_NET_ID}`
+        const deliveries = targets.map((player) => () => {
+          if (player.state === 'joined') player.client.events.queue(name, payload, source)
+        })
+        manager.latent.send(name, payload, bps, deliveries)
       },
     ),
   ]
