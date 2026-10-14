@@ -117,6 +117,35 @@ describe('Variables', () => {
     ])
   })
 
+  it('keep unsigned shorts cut to 16 bits, and names as their types read them, which FiveM names', () => {
+    const { variables, printed, run, value } = createVariables()
+    const state = {
+      name: 'fx::OneSyncState',
+      parse: (text: string) => ({ on: 'on', true: 'on', off: 'off' })[text.toLowerCase()],
+    }
+    variables.define('pending', VariableFlags.none, 'uint16', 100)
+    variables.define('mode', VariableFlags.none, state, 'on')
+    const values = ['65537', '-1', 'abc'].map((text) => {
+      run(`pending ${text}`)
+      return value('pending')
+    })
+    run('mode TRUE')
+    run('mode OFF')
+    run('mode maybe')
+    run('pending')
+    run('mode')
+    expect([values, value('mode'), printed]).toEqual([
+      ['1', '65535', '65535'],
+      'off',
+      [
+        '[cmd] Could not convert argument 0 (abc) to unsigned short\n',
+        '[cmd] Could not convert argument 0 (maybe) to fx::OneSyncState\n',
+        '[cmd]  "pending" is "65535"\n default: "100" - flags( Modified )\n type: unsigned short\n',
+        '[cmd]  "mode" is "off"\n default: "on" - flags( Modified )\n type: fx::OneSyncState\n',
+      ],
+    ])
+  })
+
   it('read booleans as true or false in any case, or as numbers that are not 0', () => {
     const { variables, run, value } = createVariables()
     variables.define('flag', VariableFlags.none, 'bool', false)

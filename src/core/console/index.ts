@@ -30,6 +30,7 @@ export {
   Variable,
   VariableFlags,
   Variables,
+  type NamedType,
   type VariablesHost,
   type VariableType,
   type VariableValue,

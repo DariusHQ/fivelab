@@ -21,15 +21,29 @@ export const VariableFlags = {
   scriptRestricted: 0x80,
 } as const
 
-/** The types of the values of console variables: those of FiveM's ConVar<T> that FiveLab has. */
-export type VariableType = 'string' | 'int' | 'bool'
+/**
+ * A type of FiveM's whose values are names, such as its enums, which
+ * FiveLab keeps by those names: as its ConsoleArgumentType parses them.
+ */
+export interface NamedType {
+  /** What FiveM's console calls the type. */
+  readonly name: string
+  /** The name that `text` stands for, if any. */
+  parse(text: string): string | undefined
+}
+
+/**
+ * The types of the values of console variables: those of FiveM's ConVar<T>
+ * that FiveLab has, with uint16 for its unsigned shorts.
+ */
+export type VariableType = 'string' | 'int' | 'uint16' | 'bool' | NamedType
 
 /** A value of a console variable of a type. */
-export type VariableValue<T extends VariableType = VariableType> = T extends 'string'
-  ? string
-  : T extends 'int'
-    ? number
-    : boolean
+export type VariableValue<T extends VariableType = VariableType> = T extends 'int' | 'uint16'
+  ? number
+  : T extends 'bool'
+    ? boolean
+    : string
 
 /** What console variables need of their console. */
 export interface VariablesHost {
@@ -416,7 +430,7 @@ export class Variable<T extends VariableType = VariableType> {
     const names = FLAG_NAMES.filter(([flag]) => flags & flag).map(([, name]) => `${name} `)
     this.#variables.host.output.print(
       'cmd',
-      ` "${this.name}" is "${this.value}"\n default: "${unparse(this.defaultValue)}" - flags( ${names.join('')})\n type: ${this.type}\n`,
+      ` "${this.name}" is "${this.value}"\n default: "${unparse(this.defaultValue)}" - flags( ${names.join('')})\n type: ${typeName(this.type)}\n`,
     )
   }
 
@@ -428,7 +442,7 @@ export class Variable<T extends VariableType = VariableType> {
     }
     const value = parse(this.type, call.args[0]!)
     if (value === undefined) {
-      call.error += `Could not convert argument 0 (${call.args[0]}) to ${this.type}\n`
+      call.error += `Could not convert argument 0 (${call.args[0]}) to ${typeName(this.type)}\n`
       return false
     }
     const flags = this.#variables.flagsOf(this.name)
@@ -449,23 +463,34 @@ export class Variable<T extends VariableType = VariableType> {
   }
 }
 
-/** A value as FiveM unparses it: ints in decimal, and booleans as true or false. */
+/** A value as FiveM unparses it: numbers in decimal, booleans as true or false, and names as they are. */
 function unparse(value: VariableValue): string {
   return String(value)
 }
 
 /**
+ * What FiveM's console calls a type: what typeid names it with MSVC, or
+ * the name FiveM gives it.
+ */
+function typeName(type: VariableType): string {
+  if (typeof type !== 'string') return type.name
+  return type === 'uint16' ? 'unsigned short' : type
+}
+
+/**
  * A value of `type` from a string, as FiveM parses arguments, or undefined
- * if it is none: ints as std::stoull reads them, cut to 32 bits, and
- * booleans as true or false in any case, or else as whether a number they
- * start with is not 0.
+ * if it is none: ints and unsigned shorts as std::stoull reads them, cut to
+ * 32 and 16 bits, booleans as true or false in any case, or else as whether
+ * a number they start with is not 0, and names as their types read them.
  */
 function parse<T extends VariableType>(type: T, text: string): VariableValue<T> | undefined {
+  if (typeof type !== 'string') return type.parse(text) as VariableValue<T> | undefined
   if (type === 'string') return text as VariableValue<T>
-  if (type === 'int') {
+  if (type === 'int' || type === 'uint16') {
     const value = stoull(text)
-    return (value === undefined ? undefined : Number(BigInt.asIntN(32, value))) as
-      VariableValue<T> | undefined
+    if (value === undefined) return undefined
+    const cut = type === 'int' ? BigInt.asIntN(32, value) : BigInt.asUintN(16, value)
+    return Number(cut) as VariableValue<T>
   }
   const word = stricmpKey(text)
   if (word === 'true' || word === 'false') return (word === 'true') as VariableValue<T>
