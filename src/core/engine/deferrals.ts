@@ -1,4 +1,5 @@
 import { compareUtf8 } from '../libc.ts'
+import { ConversionError, stringArgument } from './conversion.ts'
 import type { ResourceManager } from './manager.ts'
 import { packObject, stringOf, toJson, type Extension, type MsgpackObject } from './msgpack.ts'
 import { msgpackOfJson } from './rapidjson.ts'
@@ -30,24 +31,6 @@ export interface DeferralOutcome {
   resolve(): void
   /** Refuses the player for `message`, as `resource` asked. */
   reject(message: string, resource: string): void
-}
-
-/** Calls of deferrals with values that FiveM fails to convert, which FiveLab ignores. */
-class ConversionError extends Error {}
-
-/** How FiveLab names the types of msgpack values. */
-const KINDS: Readonly<Record<MsgpackObject['type'], string>> = {
-  nil: 'nil',
-  boolean: 'a boolean',
-  positive: 'an integer',
-  negative: 'an integer',
-  float32: 'a float',
-  float64: 'a float',
-  str: 'a string',
-  bin: 'a binary',
-  array: 'an array',
-  map: 'a map',
-  ext: 'an extension',
 }
 
 /**
@@ -291,15 +274,6 @@ export class Deferral {
     }
     this.#outcome.message(progress)
   }
-}
-
-/** The string an argument converts to, as msgpack-c converts str and bin, which fails for others. */
-export function stringArgument(object: MsgpackObject): string {
-  const text = stringOf(object)
-  if (text === undefined) {
-    throw new ConversionError(`${KINDS[object.type]}, which msgpack fails to convert to a string`)
-  }
-  return text
 }
 
 /** The JSON of a card, as FiveM converts it, which fails for maps with keys of more than one type. */
