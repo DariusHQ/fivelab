@@ -1,6 +1,8 @@
 import { Deferral } from './deferrals.ts'
 import type { ResourceManager } from './manager.ts'
+import { ManifestError } from './manifest.ts'
 import { pack } from './msgpack.ts'
+import type { Resource } from './resource.ts'
 
 /** The net id of what FiveM's servers send clients, which is the source of the events that clients get. */
 export const SERVER_NET_ID = 0xffff
@@ -210,6 +212,10 @@ export class Player {
  * deferrals it gives say whether they may connect. Players that may join at
  * the next tick of the server, which gives them their net id and triggers
  * playerJoining.
+ *
+ * Clients that join download the resources of the server that it gives
+ * clients, as it packed them as they started, and those it starts later,
+ * and stop those it stops, as FiveM's clients do.
  */
 export class Session {
   readonly server: ResourceManager
@@ -223,6 +229,8 @@ export class Session {
   #temporaryNetIds = 0
   /** The deferrals of the players that connect. */
   readonly #deferrals = new Map<Player, Deferral>()
+  /** The resources that each client waits to download as they started, which FiveM's clients download once. */
+  readonly #starting = new Map<Player, Set<string>>()
 
   constructor(server: ResourceManager) {
     if (server.side !== 'server') throw new Error('A session needs a server')
@@ -359,6 +367,10 @@ export class Session {
     this.#byNetId.set(netId, player)
     player.update({ netId, state: 'joined' })
     player.client.joinSession(this, player)
+    // The client removes its resources and downloads those of the server as it connects.
+    player.client.resetResources()
+    this.#starting.set(player, new Set())
+    this.#download(player)
     const { events, oneSync } = this.server
     events.trigger('playerJoining', pack([String(player.temporaryNetId)]), `internal-net:${netId}`)
     if (player.dropping) return
@@ -383,7 +395,93 @@ export class Session {
       if (holder === player) this.#byNetId.delete(netId)
     }
     this.#deferrals.delete(player)
+    this.#starting.delete(player)
+    const joined = player.state === 'joined'
     player.update({ state })
-    player.client.leaveSession()
+    player.client.leaveSession(joined)
+  }
+
+  /** @internal Called by the server as it starts a resource that clients get, which they download and start. */
+  resourceStarted(name: string): void {
+    for (const player of this.#joined()) {
+      const starting = this.#starting.get(player)!
+      if (starting.has(name)) continue
+      starting.add(name)
+      this.#download(player, name)
+    }
+  }
+
+  /** @internal Called by the server as it stops a resource that clients get, which they stop. */
+  resourceStopped(name: string): void {
+    for (const player of this.#joined()) {
+      const { client } = player
+      client.enqueue(() => {
+        // Clients handle what their server sent before they left, but not once they connected again.
+        if (client.session !== undefined && client.player !== player) return
+        const resource = client.getResource(name)
+        if (resource === undefined) {
+          client.trace(
+            'citizen-legacy-net-resources',
+            `Server requested resource ${name} to be stopped, but we don't know that resource\n`,
+          )
+          return
+        }
+        resource.stop()
+      })
+    }
+  }
+
+  /**
+   * Downloads the resources of the server for a client, as FiveM's clients
+   * do: at their next tick, all that the server gives clients, or the one
+   * named `only`, which they name on the console, each in place of the
+   * resource of its name or of one that provides it, which they start at
+   * the tick after.
+   */
+  #download(player: Player, only?: string): void {
+    const { client } = player
+    client.enqueue(() => {
+      if (only !== undefined) this.#starting.get(player)?.delete(only)
+      if (player.state !== 'joined') return
+      const resources = this.server
+        .resourcesForClients()
+        .filter(({ name }) => only === undefined || name === only)
+      const names = resources.map(({ name }) => `${name} `).join('')
+      client.trace('citizen-legacy-net-resources', `Required resources: ${names}\n`)
+      const added: Resource[] = []
+      let failed: { readonly name: string; readonly error: ManifestError } | undefined
+      for (const resource of resources) {
+        const old = client.getResource(resource.name)
+        if (old !== undefined) client.removeResource(old)
+        // FiveM's client puts it in place of the resource of its name, which one that provides the name may hide.
+        const named = client.getResource(resource.name, false)
+        if (named !== undefined) client.removeResource(named)
+        try {
+          // Clients of FiveM get no files of a resource that its server did not pack yet, and fail to load it.
+          added.push(client.addResource(resource.name, resource.packedForClients ?? { files: {} }))
+        } catch (error) {
+          if (!(error instanceof ManifestError)) throw error
+          failed ??= { name: resource.name, error }
+        }
+      }
+      if (failed !== undefined) {
+        client.output.diagnose(
+          failed.name,
+          `FiveM's client would stop with the error "Couldn't load resource ${failed.name}: ${failed.error.message}", and start none of the resources it downloaded. FiveLab starts none of them, but goes on.`,
+        )
+        return
+      }
+      client.enqueue(() => {
+        for (const resource of added) {
+          // The client may have removed it meanwhile, as it downloaded it again or reset its resources.
+          if (client.getResource(resource.name, false) !== resource) continue
+          if (resource.start()) continue
+          client.output.diagnose(
+            resource.name,
+            `FiveM's client would stop with the error "Couldn't start resource ${resource.name}.", which FiveLab does not emulate: it goes on.`,
+          )
+        }
+      })
+    })
   }
 }

@@ -85,6 +85,8 @@ export class Resource {
   readonly #depth = new Map<ScriptRuntime, number>()
   /** Runtimes of a stopped resource that close when their last call returns. */
   readonly #retired = new Set<ScriptRuntime>()
+  /** On servers, what clients get of the resource since it last started; see packedForClients. */
+  #packed: ResourceDefinition | undefined
 
   /**
    * Throws a ManifestError when the resource has no metadata and its
@@ -110,6 +112,8 @@ export class Resource {
     manager.events.attach(this)
     this.onStart.connect(() => this.#createRuntime())
     this.onStop.connect(() => this.#destroyRuntime())
+    // FiveM's server packs what clients get once the scripts of the resource loaded.
+    if (manager.side === 'server') this.onStart.connect(() => this.#packForClients(), 500)
   }
 
   get state(): ResourceState {
@@ -119,6 +123,16 @@ export class Resource {
   /** The entries of the resource's manifest, in order. */
   get metadata(): readonly MetadataEntry[] {
     return this.#metadata
+  }
+
+  /**
+   * On servers, what clients get of the resource, as FiveM's server packs
+   * it in its resource.rpf as the resource starts: the files that clients
+   * get, as they were then, and for a resource without a manifest, the
+   * entries it had. Nothing until the resource first started.
+   */
+  get packedForClients(): ResourceDefinition | undefined {
+    return this.#packed
   }
 
   /**
@@ -300,6 +314,17 @@ export class Resource {
       }
     }
     add(this.#root)
+  }
+
+  #packForClients(): void {
+    const { files } = this.manager
+    const packed: Record<string, Uint8Array> = {}
+    for (const path of clientFiles(files, this.#root, this.#metadata)) {
+      const data = files.read(`${this.#root}/${path}`)
+      if (data !== undefined) packed[path] = data
+    }
+    const manifest = 'fxmanifest.lua' in packed || '__resource.lua' in packed
+    this.#packed = manifest ? { files: packed } : { files: packed, metadata: this.#metadata }
   }
 
   /** Ends a start that a hook failed, as FiveM does. */

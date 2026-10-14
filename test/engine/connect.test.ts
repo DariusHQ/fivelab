@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { Session, type Player } from '../../src/core/engine/index.ts'
+import { Session, type Player, type PlayerIdentity } from '../../src/core/engine/index.ts'
 import { pack } from '../../src/core/engine/msgpack.ts'
 import { createProcess, join, runCommand, type TestProcess } from './helpers.ts'
 
@@ -24,6 +24,25 @@ async function serverWith(
 
 async function newClient(): Promise<TestProcess> {
   return createProcess({ side: 'client' })
+}
+
+/** A client script that prints the players that join and drop that clients are told of. */
+const WATCH = `RegisterNetEvent('onPlayerJoining', function(...) print('joining', ...) end)
+RegisterNetEvent('onPlayerDropped', function(...) print('dropped', ...) end)`
+
+/** Starts resource c on the server, which gives clients a script with `code`. */
+function clientScript(server: TestProcess, code: string): void {
+  server.add('c', { 'main.lua': code }, CLIENT_SCRIPT).start()
+  server.take()
+}
+
+/** Lets a client join, then ticks it until the resources of the server started on it. */
+function ready(session: Session, client: TestProcess, identity: PlayerIdentity = {}): Player {
+  const player = join(session, client.manager, identity)
+  client.manager.tick()
+  client.manager.tick()
+  client.take()
+  return player
 }
 
 /** What the scripts of a process printed since it was last asked. */
@@ -427,36 +446,18 @@ AddEventHandler('playerJoining', function()
 end)`,
       false,
     )
-    const watch = async () => {
-      const client = await newClient()
-      client
-        .add(
-          'c',
-          {
-            'main.lua': `RegisterNetEvent('onPlayerJoining', function(...) print('joining', ...) end)
-RegisterNetEvent('onPlayerDropped', function(...) print('dropped', ...) end)`,
-          },
-          CLIENT_SCRIPT,
-        )
-        .start()
-      client.take()
-      return client
-    }
-    const [ann, waiter] = [await watch(), await watch()]
-    join(session, ann.manager, { name: 'Ann' })
-    const waiting = session.connect(waiter.manager, { name: 'Waiter' })
+    clientScript(server, WATCH)
+    const ann = await newClient()
+    ready(session, ann, { name: 'Ann' })
+    const waiter = await newClient()
+    waiter.add('c', { 'main.lua': WATCH }, CLIENT_SCRIPT).start()
+    waiter.take()
+    session.connect(waiter.manager, { name: 'Waiter' })
     join(session, (await newClient()).manager, { name: 'Leaver' })
     join(session, (await newClient()).manager, { name: 'Bob' })
-    waiting.quit()
     session.tick()
-    waiter.manager.tick()
     expect([scripts(ann), scripts(waiter)]).toEqual([
-      [
-        '[script:c] joining\t1\tAnn\t-1',
-        '[script:c] joining\t1\tAnn\t-1',
-        '[script:c] dropped\t2\tLeaver\t-1',
-        '[script:c] joining\t3\tBob\t-1',
-      ],
+      ['[script:c] dropped\t2\tLeaver\t-1', '[script:c] joining\t3\tBob\t-1'],
       [],
     ])
   })
@@ -467,20 +468,13 @@ describe('Joined players', () => {
     const { server, session } = await serverWith(`RegisterCommand('send', function(_, args)
     TriggerClientEvent('hello', args[1], args[1])
 end, false)`)
-    const listening = async () => {
-      const client = await newClient()
-      client
-        .add(
-          'c',
-          { 'main.lua': `RegisterNetEvent('hello', function(...) print('hello', ...) end)` },
-          CLIENT_SCRIPT,
-        )
-        .start()
-      client.take()
-      return client
-    }
-    const [client, connecting] = [await listening(), await listening()]
-    join(session, client.manager)
+    const hello = `RegisterNetEvent('hello', function(...) print('hello', ...) end)`
+    clientScript(server, hello)
+    const client = await newClient()
+    ready(session, client)
+    const connecting = await newClient()
+    connecting.add('c', { 'main.lua': hello }, CLIENT_SCRIPT).start()
+    connecting.take()
     session.connect(connecting.manager)
     for (const target of ['1', '65536', '65536', '65537', '-1']) {
       runCommand(server.manager, `send ${target}`, 'system.console')
@@ -501,42 +495,16 @@ end, false)`)
     ])
   })
 
-  it('are told who joins with onPlayerJoining: of themselves with OneSync, and of all without', async () => {
-    const watch = async () => {
-      const client = await newClient()
-      client
-        .add(
-          'c',
-          {
-            'main.lua': `RegisterNetEvent('onPlayerJoining', function(...) print('joining', ...) end)`,
-          },
-          CLIENT_SCRIPT,
-        )
-        .start()
-      client.take()
-      return client
-    }
+  it('are told who joins after them without OneSync, but miss what comes before their resources start', async () => {
     for (const oneSync of [true, false]) {
-      const { session } = await serverWith('', oneSync)
-      const [first, second] = [await watch(), await watch()]
-      join(session, first.manager, { name: 'Ann' })
-      join(session, second.manager, { name: 'Bob' })
+      const { server, session } = await serverWith('', oneSync)
+      clientScript(server, WATCH)
+      const [first, second] = [await newClient(), await newClient()]
+      ready(session, first, { name: 'Ann' })
+      ready(session, second, { name: 'Bob' })
       session.tick()
       expect([scripts(first), scripts(second)]).toEqual(
-        oneSync
-          ? [['[script:c] joining\t1\tAnn\t128'], ['[script:c] joining\t2\tBob\t128']]
-          : [
-              [
-                '[script:c] joining\t1\tAnn\t-1',
-                '[script:c] joining\t1\tAnn\t-1',
-                '[script:c] joining\t2\tBob\t-1',
-              ],
-              [
-                '[script:c] joining\t2\tBob\t-1',
-                '[script:c] joining\t1\tAnn\t-1',
-                '[script:c] joining\t2\tBob\t-1',
-              ],
-            ],
+        oneSync ? [[], []] : [['[script:c] joining\t2\tBob\t-1'], []],
       )
     }
   })

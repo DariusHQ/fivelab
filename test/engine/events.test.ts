@@ -307,6 +307,27 @@ AddEventHandler('x', function() print('c') end)`,
   })
 })
 
+describe('onResourceStop held back', () => {
+  it('reaches no resource while the process holds it back, and is not canceled, as in FiveM', async () => {
+    const proc = await createProcess({ side: 'client' })
+    start(
+      proc,
+      'a',
+      `AddEventHandler('onResourceStop', function(name) print('stop', name) end)
+AddEventHandler('other', function() print('other') end)`,
+    )
+    const { events } = proc.manager
+    const results: boolean[] = []
+    events.holdingResourceStops(() => {
+      results.push(events.trigger('onResourceStop', pack(['x'])), events.lastCanceled)
+      events.trigger('other', pack([]))
+    })
+    expect([results, proc.take()]).toEqual([[true, false], ['[script:a] other']])
+    events.trigger('onResourceStop', pack(['x']))
+    expect(proc.take()).toEqual(['[script:a] stop\tx'])
+  })
+})
+
 describe('queued events', () => {
   it('trigger at the next tick, before threads resume', async () => {
     const proc = await createProcess()

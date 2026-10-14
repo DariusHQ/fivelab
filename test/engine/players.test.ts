@@ -235,6 +235,8 @@ print(DropPlayer(9, nil), DropPlayer(1, 'bye'), DropPlayer(9, 'nobody'))`),
           CLIENT_SCRIPT,
         )
         .start()
+      // The client downloads what its server has, which is nothing.
+      clients[1]!.manager.tick()
       clients[1]!.take()
       session.player(1)!.quit()
       session.tick()

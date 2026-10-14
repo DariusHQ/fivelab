@@ -159,7 +159,11 @@ export class ResourceManager {
   #configured = false
   #session: Session | undefined
   #player: Player | undefined
-  /** What the next tick runs first, as FiveM's main thread runs what its other threads give it. */
+  /** On clients that left a session, whether they had joined it, until they reset their resources; see leaveSession. */
+  #left: { readonly joined: boolean } | undefined
+  /** On servers, the names of the resources that clients get, in the order they started. */
+  #startOrder: string[] = []
+  /** What the next tick runs last, as FiveM's main thread runs what its other threads give it. */
   readonly #queued: (() => void)[] = []
 
   constructor(options: ResourceManagerOptions) {
@@ -250,7 +254,7 @@ export class ResourceManager {
       // reports the resources it starts and stops.
       resource.onStart.connect(() => this.#checkManifest(resource), INT32_MIN)
       resource.onStart.connect(() => this.#reportStart(resource), 99_999_999)
-      resource.onStop.connect(() => this.log('resources', `Stopping resource ${name}\n`), -1000)
+      resource.onStop.connect(() => this.#reportStop(resource), -1000)
     }
     this.#resources.set(name, resource)
     for (const provided of resource.entries('provide')) {
@@ -262,14 +266,47 @@ export class ResourceManager {
   }
 
   /**
-   * Removes a resource, as FiveM's server does with one it finds elsewhere
-   * than before: it stops it, and leaves it uninitialized. Like FiveM, it
-   * still finds the resource by the names that it provides.
+   * Removes a resource, as FiveM does, such as its server with one that it
+   * finds elsewhere than before: it stops it, and leaves it uninitialized.
+   * Like FiveM, it still finds the resource by the names that it provides.
    */
   removeResource(resource: Resource): void {
     resource.stop()
     resource.destroy()
     this.#resources.delete(resource.name)
+  }
+
+  /**
+   * Removes all resources, as FiveM's clients do as they connect to a server
+   * and as they leave it: each in turn stops and is left uninitialized, and
+   * no resource provides a name any more.
+   */
+  resetResources(): void {
+    for (const resource of [...this.#resources.values()]) {
+      resource.stop()
+      resource.destroy()
+    }
+    this.#resources.clear()
+    this.#provides.clear()
+  }
+
+  /**
+   * The resources that FiveM's servers give clients, as their getConfiguration
+   * lists them: those that are started or starting, but those that are
+   * server_only, in the order they started, then the others.
+   */
+  resourcesForClients(): Resource[] {
+    const listed = new Set<string>()
+    const resources: Resource[] = []
+    const add = (resource: Resource | undefined) => {
+      if (resource === undefined || listed.has(resource.name)) return
+      listed.add(resource.name)
+      if (resource.state !== 'started' && resource.state !== 'starting') return
+      if (resource.entries('server_only').length === 0) resources.push(resource)
+    }
+    for (const name of this.#startOrder) add(this.getResource(name, false))
+    for (const resource of this.#resources.values()) add(resource)
+    return resources
   }
 
   /**
@@ -328,16 +365,37 @@ export class ResourceManager {
     return this.#player
   }
 
-  /** @internal Called by the session that the process joins. */
+  /**
+   * @internal Called by the session that the process joins. A client that
+   * left a session resets its resources first, as FiveM's did before they
+   * could connect again.
+   */
   joinSession(session: Session, player?: Player): void {
+    this.#resetLeftResources()
     this.#session = session
     this.#player = player
   }
 
-  /** @internal Called by the session that dropped the player of a client. */
-  leaveSession(): void {
+  /**
+   * @internal Called by the session that refused or dropped the player of a
+   * client. The client resets its resources at the end of its next tick,
+   * once it handled what came before, as FiveM's do: as their game session
+   * ends, which triggers no onResourceStop, if they had joined, and as
+   * their connection fails otherwise.
+   */
+  leaveSession(joined: boolean): void {
     this.#session = undefined
     this.#player = undefined
+    this.#left = { joined }
+    this.enqueue(() => this.#resetLeftResources())
+  }
+
+  #resetLeftResources(): void {
+    const left = this.#left
+    if (left === undefined) return
+    this.#left = undefined
+    if (left.joined) this.events.holdingResourceStops(() => this.resetResources())
+    else this.resetResources()
   }
 
   /**
@@ -611,6 +669,18 @@ export class ResourceManager {
     }
     const counted = warnings === 0 ? '' : ` (${warnings} warning${warnings === 1 ? '' : 's'})`
     this.log('resources', `Started resource ${resource.name}${counted}\n`)
+    // FiveM's server gives clients the resources that are not server_only.
+    if (resource.entries('server_only').length > 0) return
+    this.#startOrder.push(resource.name)
+    this.#session?.resourceStarted(resource.name)
+  }
+
+  /** Reports a resource that stops as FiveM's server does, and tells its clients to stop it. */
+  #reportStop(resource: Resource): void {
+    this.log('resources', `Stopping resource ${resource.name}\n`)
+    if (resource.entries('server_only').length > 0) return
+    this.#startOrder = this.#startOrder.filter((name) => name !== resource.name)
+    this.#session?.resourceStopped(resource.name)
   }
 
   /**

@@ -30,6 +30,8 @@ export class EventManager {
   readonly #triggering: { canceled: boolean }[] = []
   #lastCanceled = false
   readonly #queue: QueuedEvent[] = []
+  /** Whether onResourceStop goes to no resource; see holdingResourceStops. */
+  #holdingStops = false
 
   constructor(manager: ResourceManager) {
     this.#manager = manager
@@ -77,6 +79,7 @@ export class EventManager {
     const event = { canceled: false }
     this.#triggering.push(event)
     try {
+      if (this.#holdingStops && name === 'onResourceStop') return true
       if (target !== undefined) {
         target.handleEvent(name, payload, source)
       } else if (!name.startsWith('__cfx_nui:')) {
@@ -93,6 +96,20 @@ export class EventManager {
       this.#lastCanceled = event.canceled
     }
     return !event.canceled
+  }
+
+  /**
+   * Runs `fn` while onResourceStop goes to no resource, as FiveM's clients
+   * hold the event back as they reset their resources at the end of their
+   * game session, when scripts could do nothing of note.
+   */
+  holdingResourceStops(fn: () => void): void {
+    this.#holdingStops = true
+    try {
+      fn()
+    } finally {
+      this.#holdingStops = false
+    }
   }
 
   /** Queues an event to trigger at the next tick; see trigger. */
