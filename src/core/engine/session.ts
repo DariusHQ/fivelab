@@ -224,8 +224,10 @@ export class Player {
  *
  * Clients that join download the resources of the server that it gives
  * clients, as it packed them as they started, and those it starts later,
- * and stop those it stops, as FiveM's clients do. They send the server the
- * commands that they have none for, which it runs as their players.
+ * and stop those it stops, as FiveM's clients do. They take the replicated
+ * variables of the server as they join and as they change, and send the
+ * server the commands that they have none for, which it runs as their
+ * players.
  */
 export class Session {
   readonly server: ResourceManager
@@ -389,6 +391,7 @@ export class Session {
     this.#byNetId.set(netId, player)
     player.update({ netId, state: 'joined' })
     player.client.joinSession(this, player)
+    player.client.takeServerVariables(this.server.replicatedVariables())
     // The client removes its resources and downloads those of the server as it connects.
     player.client.resetResources()
     this.#starting.set(player, new Set())
@@ -421,6 +424,11 @@ export class Session {
     const joined = player.state === 'joined'
     player.update({ state })
     player.client.leaveSession(joined)
+  }
+
+  /** @internal Called by the server with the replicated variables that changed, which the clients that joined take. */
+  replicateVariables(variables: readonly (readonly [name: string, value: string])[]): void {
+    for (const { client } of this.#joined()) client.takeServerVariables(variables)
   }
 
   /** @internal Called by a player that submits a card that its deferrals presented. */

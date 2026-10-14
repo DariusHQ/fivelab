@@ -166,6 +166,8 @@ export class ResourceManager {
   #player: Player | undefined
   /** sv_enableNetEventReassembly, which turns latent events on. */
   readonly #reassembly: Variable
+  /** On clients, the names of the variables that their server created, and of those it changed, to take back as they leave it. */
+  #fromServer: { created: string[]; modified: string[] } = { created: [], modified: [] }
   /** On clients that left a session, whether they had joined it, until they reset their resources; see leaveSession. */
   #left: { readonly joined: boolean } | undefined
   /** On servers, the names of the resources that clients get, in the order they started. */
@@ -428,6 +430,82 @@ export class ResourceManager {
     this.#left = undefined
     if (left.joined) this.events.holdingResourceStops(() => this.resetResources())
     else this.resetResources()
+    this.#forgetServerVariables()
+  }
+
+  /**
+   * @internal Called by the session of a client with replicated variables
+   * of its server, by name, which it sets as FiveM's clients do, with setr
+   * as the console and as their own code: but those that are user
+   * preferences, which they keep. They keep the values their variables had
+   * before, to take back as they leave.
+   */
+  takeServerVariables(variables: readonly (readonly [name: string, value: string])[]): void {
+    const { variables: own } = this.console
+    this.security.runAs('system.console', () =>
+      this.security.runAs('system.internal', () => {
+        for (const [name, value] of variables) {
+          const variable = own.find(name)
+          if (variable === undefined) {
+            this.#fromServer.created.push(name)
+          } else {
+            const flags = own.flagsOf(name)
+            if (flags & VariableFlags.userPref) {
+              this.printer.printDeveloper(
+                'net',
+                `Blocked convar ${name} from being set by server.\n`,
+              )
+              continue
+            }
+            // A value that came from the server is no value of the client's own.
+            if ((flags & VariableFlags.replicated) === 0) variable.saveOfflineValue()
+            this.#fromServer.modified.push(name)
+          }
+          this.console.executeDirect(['setr', name, value])
+        }
+      }),
+    )
+  }
+
+  /**
+   * Takes away the variables that the server created, and takes back the
+   * values and flags of those it changed, as FiveM's clients do once their
+   * network is down.
+   */
+  #forgetServerVariables(): void {
+    const { variables } = this.console
+    const { created, modified } = this.#fromServer
+    for (const name of created) variables.unregisterName(name)
+    this.security.runAs('system.internal', () => {
+      for (const name of modified) {
+        const variable = variables.find(name)
+        if (variable === undefined) continue
+        const replicated = (variables.defaultFlagsOf(name) & VariableFlags.replicated) !== 0
+        if (!replicated) variables.removeFlags(name, VariableFlags.replicated)
+        variable.set(variable.offlineValue)
+        // Variables that are replicated anyway are as they were unless clients change them.
+        if (replicated) variables.removeFlags(name, VariableFlags.modified)
+      }
+    })
+    this.#fromServer = { created: [], modified: [] }
+  }
+
+  /** @internal On servers, their replicated variables, as FiveM's servers send them to the clients that connect. */
+  replicatedVariables(): [name: string, value: string][] {
+    return byName(this.console.variables.list(VariableFlags.replicated))
+  }
+
+  /**
+   * On servers, sends clients the replicated variables that changed since
+   * the last tick, which are no longer marked modified then, as FiveM's
+   * servers do once a tick.
+   */
+  #replicateVariables(): void {
+    const { variables } = this.console
+    const both = VariableFlags.replicated | VariableFlags.modified
+    const changed = variables.list(both).filter(({ flags }) => (flags & both) === both)
+    for (const { name } of changed) variables.removeFlags(name, VariableFlags.modified)
+    this.#session?.replicateVariables(byName(changed))
   }
 
   /**
@@ -515,8 +593,9 @@ export class ResourceManager {
    * that are due in all runtimes. It takes the due threads of every runtime
    * before it resumes any, so that threads queued during the tick wait for
    * the next one. A client tells its server it is there first, as FiveM's
-   * do with the packets they send every frame. Last, the tick runs what was
-   * enqueued for it, as FiveM's main thread runs what other threads give it
+   * do with the packets they send every frame, and a server sends its
+   * clients the replicated variables that changed after the threads. Last,
+   * the tick runs what was enqueued for it, as FiveM's main thread runs what other threads give it
    * between frames, so that threads that wait meanwhile resume at the next
    * tick, then sends latent events, as FiveM's network does while
    * sv_enableNetEventReassembly is on.
@@ -531,6 +610,7 @@ export class ResourceManager {
       // A runtime closed by a thread that ran before it has nothing to resume.
       if (resource.runtime === runtime) resource.enter(() => runtime.resume())
     }
+    if (this.side === 'server') this.#replicateVariables()
     for (const fn of this.#queued.splice(0)) fn()
     if (this.reassembling) this.latent.tick()
   }
@@ -776,4 +856,11 @@ function parseRef(ref: string): { resource: string; instance: number; index: num
     instance: atoi(length < 0 ? ref.slice(first + 1) : ref.slice(first + 1, first + 1 + length)),
     index: atoi(ref.slice(second + 1)),
   }
+}
+
+/** The values of variables by their names, as a std::map orders names: by their bytes. */
+function byName(variables: readonly { name: string; variable: Variable }[]): [string, string][] {
+  return variables
+    .map(({ name, variable }): [string, string] => [name, variable.value])
+    .sort(([a], [b]) => compareUtf8(a, b))
 }
