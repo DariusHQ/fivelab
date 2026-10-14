@@ -18,6 +18,7 @@ import {
 } from '../natives/index.ts'
 import { CLOCK_START, type ScriptRuntime, type StackBoundaries } from '../scripting/runtime.ts'
 import { ConsoleBuffer } from './buffer.ts'
+import { CALLBACK_RESOURCE, Callbacks } from './callbacks.ts'
 import { addConfigCommands } from './config.ts'
 import { addResourceCommands } from './control.ts'
 import { Constraints, DEFAULT_GAME_BUILD, FIVEM_BUILD, parseGameBuild } from './constraints.ts'
@@ -130,6 +131,8 @@ export class ResourceManager {
   readonly oneSync: boolean
   readonly natives = new NativeRegistry<NativeContext>()
   readonly events = new EventManager(this)
+  /** The callbacks of the process's own code that scripts call as functions. */
+  readonly callbacks = new Callbacks()
   /** What dependencies such as /server:5181 test, which only servers enforce. */
   readonly constraints = new Constraints()
   readonly #dependencies = new Dependencies(this)
@@ -359,8 +362,8 @@ export class ResourceManager {
    */
   lookUpRef(ref: string): FoundRef | undefined {
     const { resource: name, instance, index } = parseRef(ref)
-    // FiveM's own runtime for callbacks of its C++ code, which FiveLab has not.
-    if (name === '_cfx_internal') return undefined
+    // The callbacks of FiveM's own code have no runtime of a resource.
+    if (name === CALLBACK_RESOURCE) return undefined
     const resource = this.getResource(name)
     const runtime = resource?.runtime
     if (resource === undefined || runtime == null || runtime.host.instanceId !== instance) {
@@ -371,11 +374,14 @@ export class ResourceManager {
 
   /**
    * Calls the function that a function reference names, as FiveM's script
-   * host does: in the runtime that lookUpRef finds, with arguments that
-   * msgpack packed. Returns the results packed, null if the runtime failed
-   * to call the function, or undefined if no runtime has the reference.
+   * host does: in the runtime that lookUpRef finds, or the callback of the
+   * process's own code for _cfx_internal, with arguments that msgpack
+   * packed. Returns the results packed, null if the runtime failed to call
+   * the function, or undefined if no runtime has the reference.
    */
   invokeFunctionReference(ref: string, args: Uint8Array): Uint8Array | null | undefined {
+    const { resource: name, index: callback } = parseRef(ref)
+    if (name === CALLBACK_RESOURCE) return this.callbacks.call(callback, args)
     const found = this.lookUpRef(ref)
     if (found === undefined) return undefined
     const { resource, runtime, index } = found
@@ -388,6 +394,8 @@ export class ResourceManager {
    * keeps, or null if no runtime has the reference.
    */
   duplicateFunctionReference(ref: string): string | null {
+    const { resource: name, index: callback } = parseRef(ref)
+    if (name === CALLBACK_RESOURCE) return this.callbacks.duplicate(callback)
     const found = this.lookUpRef(ref)
     if (found === undefined) return null
     const { resource, runtime, index } = found
@@ -398,6 +406,11 @@ export class ResourceManager {
 
   /** Takes a holder of the function that a function reference names away, as FiveM's script host does. */
   deleteFunctionReference(ref: string): void {
+    const { resource: name, index: callback } = parseRef(ref)
+    if (name === CALLBACK_RESOURCE) {
+      this.callbacks.delete(callback)
+      return
+    }
     const found = this.lookUpRef(ref)
     if (found === undefined) return
     const { resource, runtime, index } = found
