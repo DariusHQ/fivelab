@@ -1,6 +1,10 @@
 import { compareUtf8 } from '../libc.ts'
 import type { ResourceManager } from './manager.ts'
-import { stringOf, toJson, type Extension, type MsgpackObject } from './msgpack.ts'
+import { packObject, stringOf, toJson, type Extension, type MsgpackObject } from './msgpack.ts'
+import { msgpackOfJson } from './rapidjson.ts'
+
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
 
 /** What a resource deferring a connection says until it says something else, as FiveM says it. */
 const DEFERRING = 'Deferring connection...'
@@ -63,6 +67,8 @@ export class Deferral {
   #pending = false
   #completed = false
   #nextCard: string | undefined
+  /** The reference to the function that the last card presented with one gives what the client submits. */
+  #cardResponse: string | undefined
   #kickReason = PREVENTED
 
   constructor(manager: ResourceManager, outcome: DeferralOutcome) {
@@ -82,7 +88,25 @@ export class Deferral {
 
   /** Ends the deferrals, as FiveM's server does with those of players it refuses, lets connect or drops. */
   cancel(): void {
-    this.#completed = true
+    this.#complete()
+  }
+
+  /**
+   * Gives the function of the card last presented with one what the client
+   * submitted of it, as FiveM's server does at its next tick: the JSON as
+   * msgpack, as RapidJSON reads it, then the JSON. Nothing gets JSON that
+   * RapidJSON fails to read, nor what comes once the deferrals ended.
+   */
+  respondToCard(json: string): void {
+    const ref = this.#cardResponse
+    if (ref === undefined) return
+    const bytes = encoder.encode(json)
+    this.#manager.enqueue(() => {
+      const data = msgpackOfJson(bytes)
+      if (data === undefined) return
+      const args = packObject({ type: 'array', items: [data, { type: 'str', bytes }] })
+      this.#manager.invokeFunctionReference(ref, args)
+    })
   }
 
   /** The data that handover gave the player to have as it connects, as JSON, by key in the order of their bytes. */
@@ -135,6 +159,11 @@ export class Deferral {
         if (card === undefined) return
         const json = card.type === 'str' || card.type === 'bin' ? stringOf(card)! : jsonOf(card)
         if (json !== undefined) this.#presentCard(json)
+        // FiveM keeps the function that comes as a reference, of scripts or of its own code.
+        const callback = args[1]
+        if (callback?.type === 'ext' && [10, 11].includes(callback.extension.type)) {
+          this.#respondWith(decoder.decode(callback.extension.data))
+        }
       }),
       done: create('done', (resource, args) => {
         const state = this.#state(resource)
@@ -210,6 +239,26 @@ export class Deferral {
     return state
   }
 
+  /**
+   * Keeps the function that a reference names for what the client submits
+   * of cards, as FiveM's FunctionRef does: as a holder of the function, in
+   * place of the one before.
+   */
+  #respondWith(ref: string): void {
+    this.#manager.duplicateFunctionReference(ref)
+    const old = this.#cardResponse
+    this.#cardResponse = ref
+    if (old !== undefined) this.#manager.deleteFunctionReference(old)
+  }
+
+  /** Ends the deferrals, which let go of the function for cards, as FiveM's server lets go of deferrals that ended. */
+  #complete(): void {
+    this.#completed = true
+    const ref = this.#cardResponse
+    this.#cardResponse = undefined
+    if (ref !== undefined) this.#manager.deleteFunctionReference(ref)
+  }
+
   /** Presents a card, once playerConnecting ran, unless the deferrals completed, which ends what they say. */
   #presentCard(json: string): void {
     if (!this.#ranEvents) this.#nextCard = json
@@ -230,13 +279,13 @@ export class Deferral {
         allDone = false
       }
       if (state.rejected) {
-        this.#completed = true
+        this.#complete()
         this.#outcome.reject(state.message, resource)
         return
       }
     }
     if (allDone) {
-      this.#completed = true
+      this.#complete()
       this.#outcome.resolve()
       return
     }

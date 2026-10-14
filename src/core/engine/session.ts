@@ -170,6 +170,15 @@ export class Player {
     this.session.drop(this, reason, CLIENT_DROP_RESOURCE, DropReason.client)
   }
 
+  /**
+   * Submits the adaptive card that the deferrals of the connection last
+   * presented, as clients of FiveM do, with the JSON of what its
+   * Action.Submit gives.
+   */
+  submitCard(json: string): void {
+    this.session.submitCard(this, json)
+  }
+
   /** @internal Called as the client ticks, which FiveM's clients send packets with. */
   touch(): void {
     this.#lastSeen = Math.trunc(this.session.server.time())
@@ -412,6 +421,11 @@ export class Session {
     const joined = player.state === 'joined'
     player.update({ state })
     player.client.leaveSession(joined)
+  }
+
+  /** @internal Called by a player that submits a card that its deferrals presented. */
+  submitCard(player: Player, json: string): void {
+    this.#deferrals.get(player)?.respondToCard(json)
   }
 
   /** @internal Called by a client that joined as it sends its server the command `line`, which the server runs at its next tick. */

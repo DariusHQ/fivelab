@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { Session, type Player, type PlayerIdentity } from '../../src/core/engine/index.ts'
-import { pack } from '../../src/core/engine/msgpack.ts'
+import { Extension, pack, toJson } from '../../src/core/engine/msgpack.ts'
 import { createProcess, join, runCommand, type TestProcess } from './helpers.ts'
 
 /** A manifest for clients that runs main.lua, with natives FiveLab has. */
@@ -326,6 +326,106 @@ end)`)
     expect([player.card, player.message]).toEqual(['{"raw":true}', 'a: Deferring connection...\n'])
     expect(Object.fromEntries(player.handover)).toEqual({ a: '2.5', b: '{"c":true}' })
     expect([...player.handover.keys()]).toEqual(['a', 'b'])
+  })
+
+  it('give the function of the last card presented with one what clients submit, at the next tick of the server', async () => {
+    const { server, session } =
+      await serverWith(`AddEventHandler('playerConnecting', function(_, _, deferrals)
+    deferrals.defer()
+    deferrals.presentCard('{}', function(_, raw) print('first', raw) end)
+    deferrals.presentCard('{}', function(data, raw)
+        print('card', data.n, math.type(data.n), data.f, math.type(data.f), data.s, data.a, raw)
+    end)
+    deferrals.presentCard('{}')
+end)`)
+    const player = session.connect((await newClient()).manager)
+    server.manager.tick()
+    const json = '{"n": 1, "f": 1.0, "s": "x", "a": 1, "a": 2}'
+    player.submitCard(json)
+    expect(scripts(server)).toEqual([])
+    server.manager.tick()
+    // FiveM keeps the first of the members of a name.
+    expect(scripts(server)).toEqual([`[script:a] card\t1\tinteger\t1.0\tfloat\tx\t1\t${json}`])
+    // JSON that RapidJSON fails to read reaches no function.
+    player.submitCard('{"n": }')
+    server.manager.tick()
+    expect(scripts(server)).toEqual([])
+  })
+
+  it('give the functions of FiveM for cards what clients submit, as those of scripts', async () => {
+    const { server, session } =
+      await serverWith(`AddEventHandler('playerConnecting', function(_, _, deferrals)
+    deferrals.defer()
+    deferrals.presentCard('{}', deferrals.done)
+end)`)
+    const player = session.connect((await newClient()).manager)
+    server.manager.tick()
+    // done, given what the card gives and its JSON, ends the deferral, which lets the player join.
+    player.submitCard('{}')
+    server.manager.tick()
+    server.manager.tick()
+    expect(player.state).toBe('joined')
+  })
+
+  it('keep the functions for cards that come as references of FiveLab, as holders of them', async () => {
+    const { server, session } =
+      await serverWith(`AddEventHandler('playerConnecting', function(_, _, deferrals)
+    deferrals.defer()
+    print(rawget(deferrals.presentCard, '__cfx_functionReference'))
+end)`)
+    const player = session.connect((await newClient()).manager)
+    server.manager.tick()
+    const presentCard = scripts(server)[0]!.slice('[script:a] '.length)
+    const { manager } = server
+    const got: string[] = []
+    const callback = (name: string) =>
+      manager.callbacks.create((args) => got.push(`${name} ${toJson(args)}`))
+    const [first, second] = [callback('first'), callback('second')]
+    const present = (card: Extension) =>
+      manager
+        .getResource('a')!
+        .enter(() => manager.invokeFunctionReference(presentCard, pack(['{}', card])))
+    // Nothing gets what comes before a card with a function.
+    player.submitCard('0')
+    present(first)
+    present(second)
+    present(second)
+    player.submitCard('[1]')
+    manager.tick()
+    // The deferral let go of first as second took its place, and holds second once more than it let go of it.
+    const firstRef = new TextDecoder().decode(first.data)
+    expect([got, manager.invokeFunctionReference(firstRef, pack([]))]).toEqual([
+      ['second [[1],"[1]"]'],
+      null,
+    ])
+  })
+
+  it('let go of the function for cards as the deferrals end, after which nothing gets what clients submit', async () => {
+    const { server, session } = await serverWith(`local pending = {}
+AddEventHandler('playerConnecting', function(name, _, deferrals)
+    deferrals.defer()
+    pending[name] = deferrals
+    deferrals.presentCard('{}', function(_, raw) print('card', raw) end)
+end)
+AddEventHandler('finish', function(name, reason)
+    if reason then pending[name].done(reason) else pending[name].done() end
+end)`)
+    const players = await Promise.all(
+      ['Ann', 'Bob', 'Carl'].map(async (name) =>
+        session.connect((await newClient()).manager, { name }),
+      ),
+    )
+    server.manager.tick()
+    for (const player of players) player.submitCard('1')
+    // Ann may join, Bob may not, and Carl quits.
+    server.manager.events.trigger('finish', pack(['Ann']))
+    server.manager.events.trigger('finish', pack(['Bob', 'No']))
+    players[2]!.quit()
+    for (const player of players) player.submitCard('2')
+    server.manager.tick()
+    expect(
+      server.take().filter((line) => line.includes('ref call') || line.startsWith('[script:')),
+    ).toEqual([0, 1, 2].map((ref) => `[script:a] Invalid ref call attempt: ${ref}`))
   })
 
   it('say when scripts give the functions of connections what FiveM fails to convert', async () => {
