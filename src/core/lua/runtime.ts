@@ -1,6 +1,6 @@
 import { FIVEM_LIBS, type CfxLuaExports, type CfxLuaHostImports, type Ptr } from './abi.ts'
 import { LuaFatalError, isStackOverflow } from './errors.ts'
-import { LuaState } from './state.ts'
+import { LuaState, type WatchdogOptions } from './state.ts'
 
 export type OutputStream = 'stdout' | 'stderr'
 
@@ -20,6 +20,8 @@ export interface LuaStateOptions {
   readonly libs?: number
   /** Allocation limit in bytes; 0 means unlimited. */
   readonly memoryLimit?: number
+  /** Interrupts scripts that run too long without returning to JavaScript; see LuaState.setWatchdog. */
+  readonly watchdog?: WatchdogOptions
   /**
    * Receives each warning: what warn() reports and errors in finalizers.
    * Defaults to the runtime output, as "Lua warning: ..." on stderr. It must
@@ -144,6 +146,7 @@ export class LuaRuntime {
     this.#states.set(id, state)
     try {
       if (options.memoryLimit !== undefined) state.memoryLimit = options.memoryLimit
+      if (options.watchdog !== undefined) state.setWatchdog(options.watchdog)
       state.openLibs(options.libs ?? FIVEM_LIBS)
     } catch (error) {
       state.close()

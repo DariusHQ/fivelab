@@ -10,6 +10,7 @@ import {
   type Resource,
   type ResourceDefinition,
 } from '../../src/core/engine/index.ts'
+import type { WatchdogOptions } from '../../src/core/lua/index.ts'
 import type { NativeDefinition, Side } from '../../src/core/natives/index.ts'
 import type { TimeZone } from '../../src/core/scripting/time.ts'
 import { createRuntime } from '../lua/helpers.ts'
@@ -24,6 +25,7 @@ export interface ProcessOptions {
   readonly http?: HttpClient
   readonly wallClock?: () => number
   readonly timeZone?: TimeZone
+  readonly watchdog?: WatchdogOptions
 }
 
 /** The files of a resource, by their paths in it. */
@@ -101,6 +103,7 @@ export async function createProcess(options: ProcessOptions = {}): Promise<TestP
       ...(options.http === undefined ? {} : { http: options.http }),
       ...(options.wallClock === undefined ? {} : { wallClock: options.wallClock }),
       ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }),
+      ...(options.watchdog === undefined ? {} : { watchdog: options.watchdog }),
     }),
     time: 0,
     warnings,

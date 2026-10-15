@@ -11,7 +11,7 @@ import {
   VariableFlags,
 } from '../console/index.ts'
 import { INT32_MIN } from '../hook.ts'
-import { LuaError, type LuaRuntime } from '../lua/index.ts'
+import { LuaError, type LuaRuntime, type WatchdogOptions } from '../lua/index.ts'
 import {
   catalogNatives,
   NativeRegistry,
@@ -93,6 +93,8 @@ export interface ResourceManagerOptions {
   readonly wallClock?: () => number
   /** The time zone of local times, as os.date and os.time take them: that of the host by default. */
   readonly timeZone?: TimeZone
+  /** Interrupts the scripts of the process that run too long without returning, as no FiveM process does: none by default. */
+  readonly watchdog?: WatchdogOptions
 }
 
 /** What a function reference names; see ResourceManager.lookUpRef. */
@@ -178,6 +180,8 @@ export class ResourceManager {
   readonly #wallClock: () => number
   /** The time zone of local times, as os.date and os.time take them. */
   readonly timeZone: TimeZone
+  /** What interrupts the scripts of the process that run too long, if anything. */
+  readonly watchdog: WatchdogOptions | undefined
   /** How many names os.tmpname gave, across the process, as FiveM counts them. */
   #temporaryNames = 0
   readonly #resources = new Map<string, Resource>()
@@ -217,6 +221,7 @@ export class ResourceManager {
     this.#time = options.time
     this.#wallClock = options.wallClock ?? Date.now
     this.timeZone = options.timeZone ?? localTimeZone()
+    this.watchdog = options.watchdog
     this.kvp = options.kvp ?? new KvpStore()
     this.files = options.files ?? new MemoryFileSystem()
     this.openFiles = new OpenFiles(this.files)

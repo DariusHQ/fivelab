@@ -8,6 +8,7 @@ import {
   type LuaState,
   type LuaValue,
   LuaVector,
+  type WatchdogOptions,
 } from '../lua/index.ts'
 import type { NativeCaller } from '../natives/invoker.ts'
 import eventsSource from './lua/events.lua?raw'
@@ -51,6 +52,8 @@ export interface ScriptHost {
    */
   readonly exports: readonly string[]
   readonly natives: ScriptNatives
+  /** Interrupts scripts that run too long without returning, as no FiveM process does; none by default. */
+  readonly watchdog?: WatchdogOptions
   /** On servers, what FiveM's io library reaches of the process, which clients have no io library for. */
   readonly io?: IoHost
   /** On servers, what FiveM's os library reaches of the process, which clients have no os library for. */
@@ -176,7 +179,10 @@ export class ScriptRuntime implements NativeCaller {
   }
 
   static create(runtime: LuaRuntime, host: ScriptHost): ScriptRuntime {
-    const state = runtime.newState({ onWarning: (message) => host.warn(message) })
+    const state = runtime.newState({
+      onWarning: (message) => host.warn(message),
+      ...(host.watchdog === undefined ? {} : { watchdog: host.watchdog }),
+    })
     const script = new ScriptRuntime(state, host)
     try {
       script.#init()
