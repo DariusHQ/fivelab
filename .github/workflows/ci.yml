@@ -34,9 +34,11 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           test "$(node dist/fiverunner.js --version)" = "$version"
-      - name: Run the tests of the example with the command line tool
-        working-directory: examples/bank
-        run: node ../../dist/fiverunner.js test
+      - name: Run the tests of the example with the package as npm packs it
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          cd examples/bank
+          npx --yes --package "$RUNNER_TEMP"/fiverunner-*.tgz fiverunner test
 
   test:
     name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
