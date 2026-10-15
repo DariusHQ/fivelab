@@ -49,6 +49,7 @@ import { Resource, type ResourceDefinition } from './resource.ts'
 import { ResourceScanner } from './scan.ts'
 import type { Player, Session } from './session.ts'
 import { StateBags } from './statebags.ts'
+import { OpenFiles } from './streams.ts'
 
 /** Where a process writes what it reports. */
 export interface ProcessOutput {
@@ -145,6 +146,8 @@ export class ResourceManager {
   readonly kvp: KvpStore
   /** The files of the process, which its resources are in. */
   readonly files: FileSystem
+  /** The files that handles of the process have open, which Windows keeps others from. */
+  readonly openFiles: OpenFiles
   /** What sends the HTTP requests of the scripts of servers. */
   readonly http: HttpClient
   /** On servers, the HTTP server, which takes the requests to the resources. */
@@ -216,6 +219,7 @@ export class ResourceManager {
     this.timeZone = options.timeZone ?? localTimeZone()
     this.kvp = options.kvp ?? new KvpStore()
     this.files = options.files ?? new MemoryFileSystem()
+    this.openFiles = new OpenFiles(this.files)
     this.http = options.http ?? fetchHttpClient
     this.oneSync = this.side === 'server' && (options.oneSync ?? true)
     this.printer = new Printer((channel, text) => this.output.write(channel, text))

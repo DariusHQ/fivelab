@@ -449,4 +449,38 @@ print(os.rename('@a/two.txt', '@abc/moved.txt'))`,
       ].map((path) => files.read(path)?.length),
     ).toEqual([1, undefined, 1, undefined])
   })
+
+  it('remove and move no files that handles have open, nor the directories they are in', async () => {
+    const proc = await server()
+    const resource = proc.add('a', {
+      'fxmanifest.lua': `fx_version 'cerulean'
+game 'gta5'
+server_script 'main.lua'`,
+      'main.lua': `print(os.remove('@a/open.txt'))
+print(os.rename('@a/open.txt', '@a/moved.txt'))
+print(os.rename('@a/dir', '@a/moved'))
+print(os.remove('@a/free.txt'))`,
+      'open.txt': 'o',
+      'free.txt': 'f',
+      'dir/inner.txt': 'i',
+    })
+    const { openFiles, files } = proc.manager
+    openFiles.openExisting('resources/a/open.txt', 'read')
+    openFiles.openExisting('resources/a/dir/inner.txt', 'read')
+    resource.start()
+    expect([
+      proc.take().filter((line) => line.startsWith('[script:a]')),
+      files.read('resources/a/open.txt')?.length,
+      files.list('resources/a/dir'),
+    ]).toEqual([
+      [
+        '[script:a] nil\t@a/open.txt: Permission denied\t13',
+        '[script:a] nil\t@a/open.txt -> @a/moved.txt: Permission denied\t13',
+        '[script:a] nil\t@a/dir -> @a/moved: Permission denied\t13',
+        '[script:a] true',
+      ],
+      1,
+      [{ name: 'inner.txt', directory: false }],
+    ])
+  })
 })
