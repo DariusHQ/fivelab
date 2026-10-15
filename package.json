@@ -1,7 +1,6 @@
 {
   "name": "fiverunner",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
   "description": "Run FiveM resources (Lua + NUI) in your browser and in CI. No GTA V, no server, no restarts.",
   "keywords": [
     "fivem",
