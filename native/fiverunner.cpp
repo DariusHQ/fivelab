@@ -1171,6 +1171,23 @@ EMSCRIPTEN_KEEPALIVE void fr_pushtypename(lua_State *L, int idx) {
   lua_pushstring(L, lua_type(L, idx) == LUA_TLIGHTUSERDATA ? "light userdata" : luaL_typename(L, idx));
 }
 
+/*
+** Pushes `n` as LUA_NUMBER_FMT writes it, as C libraries write floats with
+** it, unlike tostring, which adds .0 to those that look like integers.
+*/
+EMSCRIPTEN_KEEPALIVE void fr_pushformatted(lua_State *L, double n) {
+  char text[64];
+  luaL_checkstack(L, 1, NULL);
+  int length = snprintf(text, sizeof text, LUA_NUMBER_FMT, n);
+  lua_pushlstring(L, text, static_cast<size_t>(length));
+}
+
+/* Pushes the number that `s` is, as lua_stringtonumber converts it, saying whether there was one. */
+EMSCRIPTEN_KEEPALIVE int fr_stringtonumber(lua_State *L, const char *s) {
+  luaL_checkstack(L, 1, NULL);
+  return lua_stringtonumber(L, s) != 0;
+}
+
 /* The pseudo-index of upvalue `i` of the C function that runs. */
 EMSCRIPTEN_KEEPALIVE int fr_upvalueindex(int i) {
   return lua_upvalueindex(i);

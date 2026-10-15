@@ -62,6 +62,8 @@ export interface CfxLuaExports {
   fr_newudata(L: Ptr, tname: Ptr, id: number): void
   fr_testudata(L: Ptr, idx: number, tname: Ptr): number
   fr_pushtypename(L: Ptr, idx: number): void
+  fr_pushformatted(L: Ptr, n: number): void
+  fr_stringtonumber(L: Ptr, s: Ptr): number
   fr_upvalueindex(i: number): number
   fr_replace(L: Ptr, idx: number): void
 

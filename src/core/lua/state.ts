@@ -203,16 +203,28 @@ export class HostArgs {
     )
   }
 
-  /** Upvalue `index` of the function that runs, from 1: what LuaState.hostClosure closed over. */
+  /** Whether an argument is a number of the integer subtype, as lua_isinteger tells. */
+  isInteger(index: number): boolean {
+    return this.state.runtime.exports.fr_isinteger(this.L, index) !== 0
+  }
+
+  /**
+   * The index of upvalue `index` of the function that runs, from 1, which
+   * reads as the arguments do: what LuaState.hostClosure closed over.
+   */
+  upvalueIndex(index: number): number {
+    return this.state.runtime.exports.fr_upvalueindex(index + 1)
+  }
+
+  /** Upvalue `index` of the function that runs, from 1. */
   upvalue(index: number): LuaValue {
-    return this.state.read(this.L, this.state.runtime.exports.fr_upvalueindex(index + 1))
+    return this.state.read(this.L, this.upvalueIndex(index))
   }
 
   /** Replaces upvalue `index` of the function that runs, for its later calls to read. */
   setUpvalue(index: number, value: LuaValue): void {
-    const ex = this.state.runtime.exports
     this.state.push(this.L, value)
-    ex.fr_replace(this.L, ex.fr_upvalueindex(index + 1))
+    this.state.runtime.exports.fr_replace(this.L, this.upvalueIndex(index))
   }
 
   get(index: number): LuaValue {
@@ -525,6 +537,35 @@ export class LuaState {
   returning(ref: LuaRef): LuaRef {
     this.#returned.add(ref)
     return ref
+  }
+
+  /**
+   * `n` written as LUA_NUMBER_FMT writes floats, which C libraries write
+   * them with, unlike tostring, which adds .0 to those that look integral.
+   */
+  formatFloat(n: number): string {
+    return this.#enter((L) => {
+      this.runtime.exports.fr_pushformatted(L, n)
+      const text = this.read(L, -1) as string
+      this.runtime.exports.fr_settop(L, -2)
+      return text
+    })
+  }
+
+  /**
+   * The number that `text` is, as lua_stringtonumber converts it, with
+   * floats as LuaFloat, so that they stay floats, or undefined if it is none.
+   */
+  stringToNumber(text: string): number | bigint | LuaFloat | undefined {
+    return this.#enter((L) => {
+      const ex = this.runtime.exports
+      const found = this.runtime.withString(`${text}\0`, (ptr) => ex.fr_stringtonumber(L, ptr))
+      if (found === 0) return undefined
+      const value =
+        ex.fr_isinteger(L, -1) === 0 ? new LuaFloat(ex.fr_tonumber(L, -1)) : this.read(L, -1)
+      ex.fr_settop(L, -2)
+      return value as number | bigint | LuaFloat
+    })
   }
 
   /** Sets a field of a table without invoking metamethods. */

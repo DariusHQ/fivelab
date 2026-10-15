@@ -10,6 +10,7 @@ import {
   MAX_NESTED_CALLS,
   type LuaValue,
 } from '../../src/core/lua/index.ts'
+import { LUA_TSTRING } from '../../src/core/lua/abi.ts'
 import { createRuntime } from './helpers.ts'
 
 describe('host functions', () => {
@@ -460,6 +461,58 @@ return n, tag, arg, (b()), a == b`,
     expect(() => lua.hostClosure(lua.hostFunction(() => {}))).not.toThrow()
     const other = (await createRuntime()).newState()
     expect(() => other.hostClosure(count)).toThrow('another Lua state')
+  })
+
+  it('find userdata among the upvalues of their closures', async () => {
+    const lua = (await createRuntime()).newState()
+    lua.newMetatable('Box*', [])
+    const box = lua.newUserdata('Box*', 5)
+    const open = lua.hostFunction((args) => [
+      args.userdata(args.upvalueIndex(1), 'Box*'),
+      args.type(args.upvalueIndex(2)),
+    ])
+    lua.setGlobal('open', lua.hostClosure(open, box, 'not a box'))
+    expect(lua.run(`return open()`, '=test')).toEqual([5, LUA_TSTRING])
+  })
+
+  it('convert numbers as the C libraries of Lua do', async () => {
+    const lua = (await createRuntime()).newState()
+    lua.setGlobal(
+      'convert',
+      lua.hostFunction((args) => [
+        args.isInteger(1),
+        args.isInteger(2),
+        args.isInteger(3),
+        ...[1, 2 ** 63, -0, 0.1].map((n) => lua.formatFloat(n)),
+        lua.stringToNumber('0x10'),
+        lua.stringToNumber(' 1e2 '),
+        lua.stringToNumber('1.'),
+        lua.stringToNumber('x') ?? 'none',
+      ]),
+    )
+    expect(
+      lua.run(
+        `local t = { convert(1, 1.0, '1') }
+return t[1], t[2], t[3], t[4], t[5], t[6], t[7],
+  math.type(t[8]), t[8], math.type(t[9]), t[9], math.type(t[10]), t[11]`,
+        '=test',
+      ),
+    ).toEqual([
+      true,
+      false,
+      false,
+      // Floats come out as %.14g writes them, without the .0 of tostring.
+      '1',
+      '9.2233720368548e+18',
+      '-0',
+      '0.1',
+      'integer',
+      16,
+      'float',
+      100,
+      'float',
+      'none',
+    ])
   })
 })
 
