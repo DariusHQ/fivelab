@@ -28,6 +28,12 @@ jobs:
       - run: npm run format:check
       - name: Check that the native catalog matches the typings
         run: npm run build:natives -- --check
+      - name: Build the command line tool
+        run: npm run build
+      - name: Check that the command line tool runs
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test "$(node dist/fiverunner.js --version)" = "$version"
 
   test:
     name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
