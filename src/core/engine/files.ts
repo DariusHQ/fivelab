@@ -20,14 +20,31 @@ export interface FileSystem {
    * lists them, or undefined if there is no directory there.
    */
   list(path: string): readonly FileEntry[] | undefined
-  /** The bytes of the file at `path`, or undefined if there is no file there. */
+  /** The bytes of the file at `path`, which callers leave as they are, or undefined if there is no file there. */
   read(path: string): Uint8Array | undefined
+  /** The length of the file at `path` in bytes, or undefined if there is no file there. */
+  size(path: string): number | undefined
+  /**
+   * A copy of the bytes of the file at `path` from byte `offset`, up to
+   * `length` of them, or undefined if there is no file there.
+   */
+  readAt(path: string, offset: number, length: number): Uint8Array | undefined
   /**
    * Writes `data` to the file at `path`, creating the file or replacing
    * what it has, and returns whether it could, which it cannot without a
    * directory for the file, as FiveM creates none, or with one at `path`.
    */
   write(path: string, data: Uint8Array): boolean
+  /**
+   * Writes `data` into the file at `path` from byte `offset`, past its end
+   * if need be, with zeros between, and returns whether there was a file.
+   */
+  writeAt(path: string, offset: number, data: Uint8Array): boolean
+  /**
+   * Makes the file at `path` `length` bytes long, cutting it or adding
+   * zeros, and returns whether there was a file.
+   */
+  resize(path: string, length: number): boolean
   /** Creates the directory at `path`, and those it is in, unless they are there. Throws if a file is. */
   makeDirectory(path: string): void
   /** Removes the file at `path`, and returns whether there was one, as FiveM removes files but no directories. */
@@ -42,6 +59,14 @@ export interface FileSystem {
 
 const encoder = new TextEncoder()
 
+/** A file in memory, in a buffer that can have room past its end, for writes to grow into. */
+interface StoredFile {
+  bytes: Uint8Array
+  length: number
+  /** Whether read gave out a view of `bytes`, which writes then leave as it is. */
+  shared: boolean
+}
+
 /**
  * Files in memory, for hosts that keep none of their own, such as
  * browsers. It has a directory wherever its files are, and those it makes,
@@ -53,7 +78,7 @@ export class MemoryFileSystem implements FileSystem {
     ['', new Map()],
     ['/', new Map()],
   ])
-  readonly #files = new Map<string, Uint8Array>()
+  readonly #files = new Map<string, StoredFile>()
 
   /** Files with `files`, by their paths, with the directories that these name. */
   constructor(files: Readonly<Record<string, string | Uint8Array>> = {}) {
@@ -67,14 +92,42 @@ export class MemoryFileSystem implements FileSystem {
   }
 
   read(path: string): Uint8Array | undefined {
-    return this.#files.get(path)
+    const file = this.#files.get(path)
+    if (file === undefined) return undefined
+    file.shared = true
+    return file.bytes.subarray(0, file.length)
+  }
+
+  size(path: string): number | undefined {
+    return this.#files.get(path)?.length
+  }
+
+  readAt(path: string, offset: number, length: number): Uint8Array | undefined {
+    const file = this.#files.get(path)
+    if (file === undefined) return undefined
+    return file.bytes.slice(Math.min(offset, file.length), Math.min(offset + length, file.length))
   }
 
   write(path: string, data: Uint8Array): boolean {
     const directory = this.#directories.get(parentOf(path))
     if (directory === undefined || this.#directories.has(path)) return false
     directory.set(nameOf(path), false)
-    this.#files.set(path, data.slice())
+    this.#files.set(path, { bytes: data.slice(), length: data.length, shared: false })
+    return true
+  }
+
+  writeAt(path: string, offset: number, data: Uint8Array): boolean {
+    const file = this.#files.get(path)
+    if (file === undefined) return false
+    resizeFile(file, Math.max(file.length, offset + data.length))
+    file.bytes.set(data, offset)
+    return true
+  }
+
+  resize(path: string, length: number): boolean {
+    const file = this.#files.get(path)
+    if (file === undefined) return false
+    resizeFile(file, length)
     return true
   }
 
@@ -113,6 +166,24 @@ export class MemoryFileSystem implements FileSystem {
     }
     return true
   }
+}
+
+/**
+ * Makes a file `length` bytes long, with zeros past what it had, in a
+ * buffer that read gave out no view of. Growing past its room doubles it,
+ * so that files written at their ends copy their bytes only now and then.
+ */
+function resizeFile(file: StoredFile, length: number): void {
+  const room = file.bytes.length
+  if (file.shared || length > room) {
+    const bytes = new Uint8Array(length > room ? Math.max(length, room * 2) : room)
+    bytes.set(file.bytes.subarray(0, file.length))
+    file.bytes = bytes
+    file.shared = false
+  } else if (length > file.length) {
+    file.bytes.fill(0, file.length, length)
+  }
+  file.length = length
 }
 
 /**

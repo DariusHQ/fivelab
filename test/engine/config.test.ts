@@ -114,10 +114,14 @@ describe('exec', () => {
     const swappable: FileSystem = {
       list: (path) => files.list(path)?.filter(({ name }) => !hidden.has(`${path}/${name}`)),
       read: (path) => files.read(path),
+      size: (path) => files.size(path),
+      readAt: (path, offset, length) => files.readAt(path, offset, length),
       write: (path, data) => files.write(path, data),
       makeDirectory: (path) => files.makeDirectory(path),
       remove: (path) => files.remove(path),
       rename: (from, to) => files.rename(from, to),
+      writeAt: (path, offset, data) => files.writeAt(path, offset, data),
+      resize: (path, length) => files.resize(path, length),
     }
     const proc = await createProcess({ files: swappable })
     proc.manager.scanResources()

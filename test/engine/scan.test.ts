@@ -30,10 +30,14 @@ function swappable(first: FileSystem): { files: FileSystem; swap: (next: FileSys
     files: {
       list: (path) => current.list(path),
       read: (path) => current.read(path),
+      size: (path) => current.size(path),
+      readAt: (path, offset, length) => current.readAt(path, offset, length),
       write: (path, data) => current.write(path, data),
       makeDirectory: (path) => current.makeDirectory(path),
       remove: (path) => current.remove(path),
       rename: (from, to) => current.rename(from, to),
+      writeAt: (path, offset, data) => current.writeAt(path, offset, data),
+      resize: (path, length) => current.resize(path, length),
     },
     swap: (next) => {
       current = next
@@ -365,6 +369,10 @@ end)`,
       makeDirectory: () => {},
       remove: () => false,
       rename: () => false,
+      writeAt: () => false,
+      size: () => undefined,
+      readAt: () => undefined,
+      resize: () => false,
     })
     expect(() => proc.manager.scanResources()).toThrow(new Error('The disk is gone'))
   })
@@ -380,6 +388,10 @@ end)`,
       makeDirectory: () => {},
       remove: () => false,
       rename: () => false,
+      writeAt: () => false,
+      size: () => undefined,
+      readAt: () => undefined,
+      resize: () => false,
     }
     const proc = await createProcess({ files: broken })
     expect(() => proc.manager.scanResources()).toThrow(new Error('The disk is gone'))

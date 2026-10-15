@@ -60,6 +60,91 @@ describe('MemoryFileSystem', () => {
     expect(files.read('x.bin')).toEqual(new Uint8Array([1, 2]))
   })
 
+  it('writes into files at offsets, with zeros past their ends, and resizes them', () => {
+    const files = new MemoryFileSystem({ 'a.txt': 'abc', d: '' })
+    files.makeDirectory('d2')
+    const steps = [
+      files.writeAt('a.txt', 1, encode('XY')),
+      files.read('a.txt'),
+      files.writeAt('a.txt', 5, encode('Z')),
+      files.read('a.txt'),
+      files.resize('a.txt', 2),
+      files.read('a.txt'),
+      files.resize('a.txt', 4),
+      files.read('a.txt'),
+      files.writeAt('none.txt', 0, encode('x')),
+      files.resize('d2', 1),
+      files.read('none.txt'),
+    ]
+    expect(steps).toEqual([
+      true,
+      encode('aXY'),
+      true,
+      encode('aXY\0\0Z'),
+      true,
+      encode('aX'),
+      true,
+      encode('aX\0\0'),
+      false,
+      false,
+      undefined,
+    ])
+  })
+
+  it('tells the sizes of files and reads copies of their parts', () => {
+    const files = new MemoryFileSystem({ 'a.txt': 'abcd', 'd/x': '' })
+    const part = files.readAt('a.txt', 1, 2)!
+    files.writeAt('a.txt', 1, encode('ZZ'))
+    expect([
+      files.size('a.txt'),
+      files.size('d'),
+      files.size('none'),
+      part,
+      files.readAt('a.txt', 2, 10),
+      files.readAt('a.txt', 9, 1),
+      files.readAt('d', 0, 1),
+    ]).toEqual([4, undefined, undefined, encode('bc'), encode('Zd'), encode(''), undefined])
+  })
+
+  it('keeps the bytes it read as they were, whatever is written after', () => {
+    const files = new MemoryFileSystem({ 'a.txt': 'abc' })
+    const first = files.read('a.txt')!
+    files.writeAt('a.txt', 0, encode('X'))
+    const second = files.read('a.txt')!
+    files.resize('a.txt', 1)
+    files.resize('a.txt', 3)
+    const third = files.read('a.txt')!
+    files.writeAt('a.txt', 3, encode('!'))
+    expect([first, second, third, files.read('a.txt')]).toEqual([
+      encode('abc'),
+      encode('Xbc'),
+      encode('X\0\0'),
+      encode('X\0\0!'),
+    ])
+  })
+
+  it('appends to files in place, with room that doubles as they grow', () => {
+    const files = new MemoryFileSystem({ 'log.txt': '', 'abc.txt': '' })
+    let length = 0
+    for (let i = 0; i < 1000; i++) {
+      const line = encode(`line ${i}\n`)
+      files.writeAt('log.txt', length, line)
+      length += line.length
+    }
+    const text = new TextDecoder().decode(files.read('log.txt'))
+    expect([text.length, text.slice(0, 7), text.slice(-9)]).toEqual([
+      length,
+      'line 0\n',
+      'line 999\n',
+    ])
+    // Bytes written one at a time make room for 1, 2 and then 4, which read gives a view of.
+    for (const [offset, letter] of ['a', 'b', 'c'].entries()) {
+      files.writeAt('abc.txt', offset, encode(letter))
+    }
+    const abc = files.read('abc.txt')!
+    expect([abc, abc.buffer.byteLength]).toEqual([encode('abc'), 4])
+  })
+
   it('makes directories with those they are in, but not over files', () => {
     const files = new MemoryFileSystem({ 'a/b.txt': 'b' })
     files.makeDirectory('a/x/y')
