@@ -181,6 +181,27 @@ TriggerEvent('x')`,
   })
 })
 
+describe('watching events', () => {
+  it('sees each event that the process triggers, before its resources get it', async () => {
+    const seen: string[] = []
+    const record = defineNative(
+      { name: 'RECORD_EVENT', result: 'void', params: ['char* text'] },
+      (_ctx: NativeContext, text) => void seen.push(String(text)),
+    )
+    const proc = await createProcess({ natives: [record] })
+    proc.manager.events.onTrigger.connect((name, payload, source) => {
+      seen.push(`${name} [${Array.from(payload).join(',')}] '${source}'`)
+    })
+    start(
+      proc,
+      'a',
+      `AddEventHandler('x', function() RecordEvent('handled x') end)
+TriggerEvent('x', 5)`,
+    )
+    expect(seen.filter((entry) => !entry.startsWith('on'))).toEqual(["x [145,5] ''", 'handled x'])
+  })
+})
+
 describe('event sources', () => {
   it('are empty strings for events of the process', async () => {
     const proc = await createProcess()

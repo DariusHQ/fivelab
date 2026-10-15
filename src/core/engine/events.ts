@@ -1,3 +1,4 @@
+import { Hook } from '../hook.ts'
 import type { ResourceManager } from './manager.ts'
 import { pack } from './msgpack.ts'
 import type { Resource } from './resource.ts'
@@ -23,6 +24,11 @@ interface QueuedEvent {
  * - Queued events are triggered at the next tick, with those they queue.
  */
 export class EventManager {
+  /**
+   * Runs as the process triggers each event, before its resources get it,
+   * with its name, payload and source, for embedders to watch events by.
+   */
+  readonly onTrigger = new Hook<[name: string, payload: Uint8Array, source: string]>()
   readonly #manager: ResourceManager
   /** The names of the resources registered for each event, newest first. */
   readonly #resources = new Map<string, string[]>()
@@ -80,6 +86,7 @@ export class EventManager {
     this.#triggering.push(event)
     try {
       if (this.#holdingStops && name === 'onResourceStop') return true
+      this.onTrigger.run(name, payload, source)
       if (target !== undefined) {
         target.handleEvent(name, payload, source)
       } else if (!name.startsWith('__cfx_nui:')) {
