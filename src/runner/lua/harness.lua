@@ -10,7 +10,9 @@
     and tells the runner what failed.
 
     expect checks the values that tests give it, and fails the test with
-    the first that is not as expected.
+    the first that is not as expected. fiverunner connects players, whose
+    clients run the client script of the resource, which runs the code
+    that tests give them.
 ]]
 
 local type, error, tostring = type, error, tostring
@@ -19,6 +21,7 @@ local rawequal, rawget, rawlen = rawequal, rawget, rawlen
 local setmetatable = setmetatable
 local string_format, string_find, string_gsub = string.format, string.find, string.gsub
 local table_concat, table_insert, table_sort = table.concat, table.insert, table.sort
+local table_pack, table_unpack = table.pack, table.unpack
 local math_type, math_abs, math_huge = math.type, math.abs, math.huge
 local debug_getinfo = debug.getinfo
 local msgpack_pack = msgpack.pack
@@ -458,6 +461,146 @@ function expect(actual)
     end
     expectation.never = negation
     return expectation
+end
+
+--[[ Players ]]
+
+fiverunner = {}
+
+-- The ids of the players whose clients started the resources of the server.
+local ready = {}
+-- What the clients of players gave back of the code they ran, by request.
+local results = {}
+local requests = 0
+
+RegisterNetEvent('fiverunner:ready', function()
+    ready[source] = true
+end)
+
+RegisterNetEvent('fiverunner:result', function(request, ok, values)
+    results[request] = { ok = ok, values = values }
+end)
+
+-- What players are, by the types of what the identities of players have.
+local IDENTITY = { name = 'string', guid = 'string', endpoint = 'string', identifiers = 'table', tokens = 'table' }
+
+-- A player that connected, by its id on the server and its name.
+local Player = {}
+Player.__index = Player
+
+-- Connects a player, as its identity says: its name, its guid, the
+-- endpoint it connects from, and its identifiers and tokens, which are
+-- lists of strings. Returns the player once its client started the
+-- resources of the server, or nil and why the server refused it.
+function fiverunner.connect(identity)
+    if identity ~= nil then
+        checkArgument('fiverunner.connect', 1, identity, 'table')
+        for key, value in next, identity do
+            local expected = IDENTITY[key]
+            if expected == nil then
+                raise(string_format('players have a name, a guid, an endpoint, identifiers and tokens, not %s', show(key)))
+            end
+            if type(value) ~= expected then
+                raise(string_format('the %s of a player is a %s, not a %s', key, expected, type(value)))
+            end
+            if expected == 'table' then
+                for _, item in next, value do
+                    if type(item) ~= 'string' then
+                        raise(string_format('the %s of a player are strings, not %s', key, type(item)))
+                    end
+                end
+            end
+        end
+    end
+    local connection = ask('connect', identity)
+    while true do
+        local state = ask('connection', connection)
+        if state.state == 'rejected' then
+            return nil, state.reason
+        elseif state.state == 'dropped' then
+            return nil, 'the server dropped the player'
+        elseif state.state == 'joined' and ready[state.id] then
+            return setmetatable({ id = state.id, name = state.name }, Player)
+        end
+        Wait(0)
+    end
+end
+
+-- Runs `code` in the client of the player, as a chunk of its own that
+-- takes `...`, in a thread of its own, and returns what it returns once
+-- the client gave it back. Raises what the code raised.
+function Player:run(code, ...)
+    checkArgument('run', 1, code, 'string')
+    requests = requests + 1
+    local request = requests
+    TriggerClientEvent('fiverunner:run', self.id, request, code, table_pack(...))
+    while results[request] == nil do
+        if not DoesPlayerExist(self.id) then
+            raise(string_format('player %d left before its client ran the code', self.id))
+        end
+        Wait(0)
+    end
+    local result = results[request]
+    if not result.ok then
+        raise(string_format('the client of player %d raised: %s', self.id, result.values))
+    end
+    return table_unpack(result.values, 1, result.values.n)
+end
+
+-- Triggers `event` on the server from the client of the player, with
+-- `...`, and returns once the server got it.
+function Player:emit(event, ...)
+    checkArgument('emit', 1, event, 'string')
+    self:run('TriggerServerEvent(...)', event, ...)
+end
+
+-- The arguments of each `event` that the client of the player got from the
+-- network, in the order they came.
+function Player:received(event)
+    checkArgument('received', 1, event, 'string')
+    return ask('received', { id = self.id, event = event })
+end
+
+-- What the client of the player printed on its console, line by line.
+function Player:output()
+    return ask('output', { id = self.id })
+end
+
+-- Disconnects the client of the player, as players quit, for `reason`,
+-- and returns once the server dropped the player.
+function Player:disconnect(reason)
+    if reason ~= nil then
+        checkArgument('disconnect', 1, reason, 'string')
+    end
+    ask('disconnect', { id = self.id, reason = reason })
+    while DoesPlayerExist(self.id) do
+        Wait(0)
+    end
+end
+
+-- What the server printed on its console, line by line.
+function fiverunner.output()
+    return ask('output')
+end
+
+-- Calls `check` at each tick until it returns something truthy, and
+-- returns that, or fails the test once `timeout` milliseconds went by.
+function fiverunner.waitFor(check, timeout)
+    checkArgument('fiverunner.waitFor', 1, check, 'function')
+    if timeout ~= nil then
+        checkArgument('fiverunner.waitFor', 2, timeout, 'number')
+    end
+    local start = GetGameTimer()
+    while true do
+        local value = check()
+        if value then
+            return value
+        end
+        if timeout ~= nil and GetGameTimer() - start >= timeout then
+            error(setmetatable({ message = string_format('waitFor gave up after %s ms', show(timeout)) }, Failure))
+        end
+        Wait(0)
+    end
 end
 
 --[[ Running tests ]]

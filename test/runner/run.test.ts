@@ -524,6 +524,14 @@ it('forges', function()
     refuse('report', msgpack.pack({ failures = { { message = 1, frames = {} } } }))
     refuse('report', msgpack.pack({ failures = { { message = 'm', frames = { { name = 'f' } } } } }))
     refuse('report', msgpack.pack({ names = { 1 }, failures = {} }))
+    refuse('connect', msgpack.pack({ name = 1 }))
+    refuse('connect', msgpack.pack({ identifiers = 'x' }))
+    refuse('connection', msgpack.pack(99))
+    refuse('connection', msgpack.pack('x'))
+    refuse('connection', msgpack.pack(1.5))
+    refuse('output', msgpack.pack({ id = 99 }))
+    refuse('received', msgpack.pack({ id = 99, event = 'x' }))
+    refuse('disconnect', msgpack.pack({ id = 99 }))
 end)`)
     const refused = (output: readonly OutputLine[]) =>
       printed(output).map((line) => line.replace(/^.*: /, ''))
@@ -540,11 +548,19 @@ end)`)
         'tests/x.test.lua',
         'Unknown method nope',
         'Expected a table',
-        'Expected a table',
+        'Expected a list',
         'Expected a list',
         'Expected a string',
         'Frames have lines',
         'Expected a string',
+        'Expected a string',
+        'Expected a list',
+        'Unknown connection',
+        'Expected a whole number',
+        'Expected a whole number',
+        'No player has the id 99',
+        'No player has the id 99',
+        'No player has the id 99',
       ],
     ])
   })

@@ -4,12 +4,21 @@ import {
   type FileSystem,
   type HttpClient,
   type NativeContext,
+  type Player,
+  type PlayerIdentity,
   type ProcessOutput,
 } from '../core/engine/index.ts'
-import { pack, unpackObject, type MsgpackObject } from '../core/engine/msgpack.ts'
+import {
+  pack,
+  packObject,
+  unpackObject,
+  type MsgpackObject,
+  type PackedValue,
+} from '../core/engine/msgpack.ts'
 import { LuaFatalError, type WatchdogOptions } from '../core/lua/index.ts'
 import { defineNative } from '../core/natives/index.ts'
 import { UTC } from '../core/scripting/time.ts'
+import client from './lua/client.lua?raw'
 import harness from './lua/harness.lua?raw'
 
 /** The name of the resource that runs the tests, which projects cannot have one of. */
@@ -33,6 +42,7 @@ const offline: HttpClient = async () => ({
 const MANIFEST = `fx_version 'cerulean'
 game 'gta5'
 server_script 'harness.lua'
+client_script 'client.lua'
 `
 
 /** A FiveM project, whose resources tests run with. */
@@ -205,41 +215,62 @@ function sameNames(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((name, index) => name === b[index])
 }
 
-/** What the harness of a server reported, once it did. */
-interface Inbox<T> {
-  report: T | undefined
+/** A connection that a test asked for: the process of its client, and its player once the client started. */
+interface Connection {
+  readonly process: string
+  player: Player | undefined
+}
+
+/** An event that the client of a player got from the network. */
+interface Received {
+  readonly player: Player
+  readonly name: string
+  readonly payload: Uint8Array
 }
 
 /**
  * A server that started the project, and the resource that runs the
  * tests of a file, with what its processes printed, and what its harness
- * reported.
+ * reported, as `parse` reads it.
  */
 class World<T> {
   readonly engine: Engine
   readonly output: Output
-  readonly #inbox: Inbox<T>
+  readonly #options: RunOptions
+  /** The file that the harness loads, and the test it runs, if it runs one. */
+  readonly #target: PackedValue
+  readonly #parse: (report: unknown) => T
+  #report: T | undefined
   /** What the server waits for outside its frames, such as the responses to HTTP requests. */
   readonly #pending: Promise<unknown>[]
+  /** What tests asked the runner to do between frames, in the order they asked. */
+  readonly #actions: (() => Promise<void> | void)[] = []
+  /** The connections that tests asked for, in the order they asked. */
+  readonly #connections: Connection[] = []
+  readonly #received: Received[] = []
   /** What the server failed with, if it crashed. */
   crash: Failure | undefined
 
   private constructor(
     engine: Engine,
     output: Output,
-    inbox: Inbox<T>,
     pending: Promise<unknown>[],
+    options: RunOptions,
+    target: PackedValue,
+    parse: (report: unknown) => T,
   ) {
     this.engine = engine
     this.output = output
-    this.#inbox = inbox
     this.#pending = pending
+    this.#options = options
+    this.#target = target
+    this.#parse = parse
   }
 
   /**
    * Starts a server for the tests of `file`: the project, then the
    * resource that runs the tests, which collects them, or runs the
-   * `test`th of them. What the harness reports, `parse` reads.
+   * `test`th of them.
    */
   static async create<T>(
     options: RunOptions,
@@ -248,22 +279,14 @@ class World<T> {
     parse: (report: unknown) => T,
   ): Promise<World<T>> {
     const output = new Output()
-    const inbox: Inbox<T> = { report: undefined }
     const pending: Promise<unknown>[] = []
-    const target = test === undefined ? { file: file.path } : { file: file.path, test }
+    let world: World<T> | undefined
     const call = defineNative(
       { name: 'FIVERUNNER_CALL', result: 'object', params: ['char* method', 'bytes args'] },
       (ctx: NativeContext, method, args) => {
         if (ctx.resource.name !== TEST_RESOURCE) throw new Error('Only the tests may call this')
-        switch (method) {
-          case 'target':
-            return pack(target)
-          case 'report':
-            inbox.report = parse(args === null ? undefined : plain(unpackObject(args)))
-            return pack(null)
-          default:
-            throw new Error(`Unknown method ${String(method)}`)
-        }
+        // Scripts run once the world is there.
+        return world!.#answer(method, args === null ? undefined : plain(unpackObject(args)))
       },
     )
     const engine = await Engine.create({
@@ -282,7 +305,8 @@ class World<T> {
         },
       },
     })
-    const world = new World(engine, output, inbox, pending)
+    const target = test === undefined ? { file: file.path } : { file: file.path, test }
+    world = new World(engine, output, pending, options, target, parse)
     world.#survive(() => {
       const { server } = engine
       server.scanResources()
@@ -299,7 +323,12 @@ class World<T> {
       server.security.addEntry(`resource.${TEST_RESOURCE}`, 'command', 'allow')
       server
         .addResource(TEST_RESOURCE, {
-          files: { 'fxmanifest.lua': MANIFEST, 'harness.lua': harness, [file.path]: file.source },
+          files: {
+            'fxmanifest.lua': MANIFEST,
+            'harness.lua': harness,
+            'client.lua': client,
+            [file.path]: file.source,
+          },
         })
         .start()
     })
@@ -309,16 +338,99 @@ class World<T> {
   /**
    * Moves the clock of the server, frame by frame, until the harness
    * reports, the server crashes or the clock reaches `timeout`, and returns
-   * what the harness reported, if it did. Before each frame, it waits for
-   * what the server waits for, which so takes no time by its clock.
+   * what the harness reported, if it did. Before each frame, it does what
+   * tests asked, then waits for what the server waits for, which so takes
+   * no time by its clock.
    */
   async run(timeout: number): Promise<T | undefined> {
     const { clock } = this.engine
-    while (this.#inbox.report === undefined && this.crash === undefined && clock.now < timeout) {
+    while (this.#report === undefined && this.crash === undefined && clock.now < timeout) {
+      for (const action of this.#actions.splice(0)) await action()
       if (this.#pending.length > 0) await Promise.allSettled(this.#pending.splice(0))
       this.#survive(() => this.engine.advance(Math.min(SERVER_FRAME_TIME, timeout - clock.now)))
     }
-    return this.#inbox.report
+    return this.#report
+  }
+
+  /** Answers what the harness asks with `method`, and the arguments it gave, as msgpack. */
+  #answer(method: string | null, args: unknown): Uint8Array {
+    switch (method) {
+      case 'target':
+        return pack(this.#target)
+      case 'report':
+        this.#report = this.#parse(args)
+        return pack(null)
+      case 'connect':
+        return pack(this.#connect(identityOf(args)))
+      case 'connection':
+        return pack(this.#state(this.#connections[count(args) - 1]))
+      case 'received': {
+        const { id, event } = fields(args)
+        const { player } = this.#connectionOf(count(id))
+        const items = this.#received
+          .filter((received) => received.player === player && received.name === text(event))
+          .map((received) => unpackObject(received.payload))
+        return packObject({ type: 'array', items })
+      }
+      case 'output': {
+        const { id } = fields(args)
+        const process = id === undefined ? 'server' : this.#connectionOf(count(id)).process
+        const lines = this.output.lines.filter(
+          (line) => line.process === process && line.kind === 'console',
+        )
+        return pack(lines.map(({ channel, text }) => `[${channel}] ${text.replace(/\^\d/g, '')}`))
+      }
+      case 'disconnect': {
+        const { id, reason } = fields(args)
+        const { player } = this.#connectionOf(count(id))
+        const why = reason === undefined ? undefined : text(reason)
+        this.#actions.push(() => this.#survive(() => player!.quit(why)))
+        return pack(null)
+      }
+      default:
+        throw new Error(`Unknown method ${String(method)}`)
+    }
+  }
+
+  /**
+   * Asks for a client that connects as a player with `identity`, which
+   * the runner starts before the next frame, and returns the number of the
+   * connection, from 1.
+   */
+  #connect(identity: PlayerIdentity): number {
+    const connection: Connection = {
+      process: `client ${this.#connections.length + 1}`,
+      player: undefined,
+    }
+    this.#connections.push(connection)
+    this.#actions.push(async () => {
+      const watchdog = this.#options.watchdog ?? WATCHDOG
+      const { client, player } = await this.engine.connect(identity, { watchdog })
+      connection.player = player
+      client.events.onTrigger.connect((name, payload, source) => {
+        // The events of the resource that runs the tests are its own.
+        if (source.startsWith('net:') && !name.startsWith(`${TEST_RESOURCE}:`)) {
+          this.#received.push({ player, name, payload })
+        }
+      })
+    })
+    return this.#connections.length
+  }
+
+  /** How a connection goes: connecting until its client started, then as its player does. */
+  #state(connection: Connection | undefined): PackedValue {
+    if (connection === undefined) throw new Error('Unknown connection')
+    const { player } = connection
+    if (player === undefined) return { state: 'connecting' }
+    const { state, netId: id, name, rejection } = player
+    return rejection === undefined ? { state, id, name } : { state, id, name, reason: rejection }
+  }
+
+  /** The connection whose player has the id `id` on the server. */
+  #connectionOf(id: number): Connection {
+    const connection = this.#connections.find(({ player }) => player?.netId === id)
+    if (connection === undefined) throw new Error(`No player has the id ${id}`)
+    return connection
   }
 
   /** Runs `fn`, and keeps what crashed the server if a runtime crashed. */
@@ -441,11 +553,34 @@ function record(value: unknown): Readonly<Record<string, unknown>> {
   return value as Record<string, unknown>
 }
 
-/** The items of a list, which Lua packs as an array, or as a map while it is empty. */
+/** The fields of a table, which Lua packs as a map, or as an array while it is empty. */
+function fields(value: unknown): Readonly<Record<string, unknown>> {
+  return Array.isArray(value) && value.length === 0 ? {} : record(value)
+}
+
+/** The items of a list, which Lua packs as an array. */
 function list(value: unknown): readonly unknown[] {
-  if (Array.isArray(value)) return value
-  if (Object.keys(record(value)).length === 0) return []
-  throw new Error('Expected a list')
+  if (!Array.isArray(value)) throw new Error('Expected a list')
+  return value
+}
+
+/** A whole number, as the harness counts connections and the ids of players. */
+function count(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value))
+    throw new Error('Expected a whole number')
+  return value
+}
+
+/** The identity of a player, as the harness gives it. */
+function identityOf(value: unknown): PlayerIdentity {
+  const { name, guid, endpoint, identifiers, tokens } = fields(value)
+  return {
+    ...(name === undefined ? {} : { name: text(name) }),
+    ...(guid === undefined ? {} : { guid: text(guid) }),
+    ...(endpoint === undefined ? {} : { endpoint: text(endpoint) }),
+    ...(identifiers === undefined ? {} : { identifiers: list(identifiers).map(text) }),
+    ...(tokens === undefined ? {} : { tokens: list(tokens).map(text) }),
+  }
 }
 
 function text(value: unknown): string {
