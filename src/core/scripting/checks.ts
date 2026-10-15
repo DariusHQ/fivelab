@@ -14,6 +14,11 @@ export function isNoneOrNil(args: HostArgs, index: number): boolean {
   return type === LUA_TNONE || type === LUA_TNIL
 }
 
+/** Checks that there is an argument `index`, as luaL_checkany does. */
+export function checkAny(args: HostArgs, index: number): void {
+  if (args.type(index) === LUA_TNONE) throw new LuaArgumentError(index, 'value expected')
+}
+
 /** An argument as luaL_checklstring takes it: the bytes of a string, or of a number as Lua writes it. */
 export function checkString(args: HostArgs, index: number): Uint8Array {
   return args.stringBytes(index) ?? typeError(args, index, 'string')
@@ -42,6 +47,11 @@ export function checkInteger(args: HostArgs, index: number): bigint {
     throw new LuaArgumentError(index, 'number has no integer representation')
   }
   return typeError(args, index, 'number')
+}
+
+/** An argument as luaL_optinteger takes it, `fallback` when there is none. */
+export function optionalInteger(args: HostArgs, index: number, fallback: bigint): bigint {
+  return isNoneOrNil(args, index) ? fallback : checkInteger(args, index)
 }
 
 /**

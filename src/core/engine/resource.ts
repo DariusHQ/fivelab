@@ -13,7 +13,7 @@ import {
   type MetadataEntry,
   type MetadataLocation,
 } from './manifest.ts'
-import { osFiles } from './vfs.ts'
+import { ioFiles, osFiles } from './vfs.ts'
 
 /** The states of a resource, named as GetResourceState names them. */
 export type ResourceState = 'uninitialized' | 'stopped' | 'starting' | 'started' | 'stopping'
@@ -434,6 +434,7 @@ export class Resource {
       ...(manager.side === 'client'
         ? {}
         : {
+            io: ioFiles(manager, name),
             os: {
               wallClock: () => manager.wallClock(),
               timeZone: manager.timeZone,

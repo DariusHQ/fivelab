@@ -18,6 +18,7 @@ import refsSource from './lua/refs.lua?raw'
 import schedulerSource from './lua/scheduler.lua?raw'
 import statesSource from './lua/states.lua?raw'
 import deferredSource from './lua/vendor/deferred.lua?raw'
+import { ioLibrary, type IoHost } from './io.ts'
 import { osLibrary, type OsHost } from './os.ts'
 
 /** The natives a resource's scripts can call. */
@@ -50,6 +51,8 @@ export interface ScriptHost {
    */
   readonly exports: readonly string[]
   readonly natives: ScriptNatives
+  /** On servers, what FiveM's io library reaches of the process, which clients have no io library for. */
+  readonly io?: IoHost
   /** On servers, what FiveM's os library reaches of the process, which clients have no os library for. */
   readonly os?: OsHost
   /**
@@ -387,8 +390,18 @@ export class ScriptRuntime implements NativeCaller {
 
   #init(): void {
     const { state, host } = this
-    // FiveM's server opens its own os library with the standard ones.
-    if (host.os !== undefined) state.setLibrary('os', osLibrary(state, host.os))
+    const write = state.hostFunction((args) => {
+      host.trace(String(args.get(1)))
+    })
+    // FiveM's server opens its own io and os libraries with the standard ones.
+    for (const [name, library] of [
+      ['io', host.io && ioLibrary(state, host.io, write)],
+      ['os', host.os && osLibrary(state, host.os)],
+    ] as const) {
+      if (library === undefined) continue
+      state.setLibrary(name, library)
+      library.release()
+    }
     const require = state.requireFunction()
     state.setGlobal('require', require)
     require.release()
@@ -401,9 +414,6 @@ export class ScriptRuntime implements NativeCaller {
     state.setGlobal('promise', promise)
     release(promise)
 
-    const write = state.hostFunction((args) => {
-      host.trace(String(args.get(1)))
-    })
     const print = state.cFunction(CFunction.print, write)
     const trace = state.cFunction(CFunction.trace, write)
     const checked = state.cFunction(CFunction.checked)

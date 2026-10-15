@@ -1,6 +1,7 @@
 import { parentOf } from './files.ts'
 import { normalizePath } from './glob.ts'
 import type { ResourceManager } from './manager.ts'
+import type { FileHandle } from './streams.ts'
 
 /**
  * Where FiveM's VFS on servers keeps the files of the paths that begin with
@@ -70,9 +71,9 @@ function mayWrite(manager: ResourceManager, current: string, path: string): bool
 }
 
 /**
- * The mount of a path that FiveM's os library takes a file at: by
+ * The mount of a path that FiveM's os and io libraries take a file at: by
  * how it begins with an @, and else as that of the resource that holds it,
- * with the path there, as the library finds its devices.
+ * with the path there, as the libraries find their devices.
  */
 function locate(manager: ResourceManager, path: string) {
   return path.startsWith('@')
@@ -83,6 +84,31 @@ function locate(manager: ResourceManager, path: string) {
 /** The directory path that FiveM makes of one that scripts give: with forward slashes, and one at its end. */
 function directoryPath(path: string): string {
   return `${path.replaceAll('\\', '/')}/`
+}
+
+/**
+ * Orders names as NTFS lists the entries of a directory, which
+ * FindFirstFile gives in that order: by their UTF-16 code units in upper
+ * case, each as one.
+ */
+function ntfsOrder(a: string, b: string): number {
+  const upper = (unit: number) => {
+    const mapped = String.fromCharCode(unit).toUpperCase()
+    return mapped.length === 1 ? mapped.charCodeAt(0) : unit
+  }
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    const difference = upper(a.charCodeAt(i)) - upper(b.charCodeAt(i))
+    if (difference !== 0) return difference
+  }
+  return a.length - b.length
+}
+
+/** The names of the entries of a directory of the files of the process, in the order NTFS lists them. */
+function namesIn(manager: ResourceManager, path: string): string[] | undefined {
+  return manager.files
+    .list(path)
+    ?.map((entry) => entry.name)
+    .sort(ntfsOrder)
 }
 
 /**
@@ -121,6 +147,57 @@ export function osFiles(manager: ResourceManager, current: string) {
       // FiveM moves files on the mount of the source, and takes the target there too.
       const file = filePath(source.mount, source.path)
       return !openFiles.inUse(file) && files.rename(file, filePath(source.mount, target.path))
+    },
+  }
+}
+
+/** How FiveM's io.open opens a file, as it reads its mode. */
+export interface OpenFlags {
+  readonly write: boolean
+  readonly append: boolean
+  readonly create: boolean
+}
+
+/**
+ * What FiveM's io library does to the files of a process for the scripts
+ * of the resource `current`: it opens files where os.remove finds them,
+ * though only to read them where the resource may not write, and lists
+ * directories where the VFS has them, or where FindDevice finds them, for
+ * the "dir" and "ls" commands of io.popen.
+ */
+export function ioFiles(manager: ResourceManager, current: string) {
+  const { openFiles } = manager
+  return {
+    /** Opens a file as io.open does once it read its mode, or gives none, which it reports as missing. */
+    open(path: string, flags: OpenFlags): FileHandle | undefined {
+      // std::filesystem, which reads the path for FiveM first, takes backslashes as separators.
+      if (path.split(/[\\/]/).includes('..')) return undefined
+      const located = locate(manager, path)
+      if (located === undefined) return undefined
+      const writable = mayWrite(manager, current, located.path)
+      const write = flags.write && writable
+      const appending = flags.append ? 'append' : 'write'
+      const file = filePath(located.mount, located.path)
+      if (flags.create && writable) {
+        return openFiles.createNew(file, appending) ?? openFiles.openExisting(file, appending)
+      }
+      const handle = openFiles.openExisting(file, write ? appending : 'read')
+      return handle ?? (write ? openFiles.createNew(file, appending) : undefined)
+    },
+    /** The names in a directory, as io.readdir lists them, which are none where there is no directory. */
+    readDirectory(path: string): string[] {
+      const directory = directoryPath(path)
+      return namesIn(manager, filePath(mountOf(manager, directory), directory)) ?? []
+    },
+    /**
+     * The names that io.popen lists for a "dir" or an "ls" of a path, with
+     * . and .., or none at all where no resource holds the path.
+     */
+    listCommand(path: string): string[] | undefined {
+      const located = mountHolding(manager, path)
+      if (located === undefined) return undefined
+      const names = namesIn(manager, filePath(located.mount, located.path))
+      return names === undefined ? [] : ['.', '..', ...names]
     },
   }
 }
