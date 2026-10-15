@@ -2,12 +2,33 @@
 
 Run FiveM resources in your browser and in CI. No GTA V, no FXServer, no restarts.
 
-> **Status:** early development. The engine runs FiveM resources in Node, but nothing is published yet: the `npx fiverunner` commands come next. Watch the repository to follow along.
+> **Status:** early development. `npx fiverunner test` runs the Lua tests of FiveM resources in Node; `npx fiverunner dev` comes next. Watch the repository to follow along.
+
+## Testing resources
+
+Write tests in files whose names end in `.test.lua`, next to your resource:
+
+```lua
+describe('bank', function()
+    it('takes deposits', function()
+        local ann = fiverunner.connect({ name = 'Ann' })
+        ann:emit('bank:deposit', 100)
+        expect(exports.bank:balance(ann.id)).toBe(600)
+    end)
+end)
+```
+
+Then run them, on your machine or in GitHub Actions:
+
+```bash
+npx fiverunner test
+```
+
+Each test gets a server of its own, with your resources started, and players whose clients run your client scripts. Time moves as fast as it can, so tests that wait take no time. [docs/testing.md](docs/testing.md) tells all that tests can do, and [examples/bank](examples/bank) is a resource with tests.
 
 ## Planned
 
 - `npx fiverunner dev` loads your resources (client Lua, server Lua and NUI) into a browser page. Join fake players, fire events, inspect state and click through your NUI without launching the game.
-- `npx fiverunner test` runs Lua tests against the same engine in Node, so GitHub Actions can catch a broken event, export or callback on every push.
 
 ## How it works
 
