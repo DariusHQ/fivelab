@@ -3,10 +3,21 @@ import {
   LuaCallerError,
   LuaFloat,
   type HostArgs,
+  type LuaRef,
   type LuaState,
   type LuaValue,
 } from '../lua/index.ts'
-import { LUA_TNIL, LUA_TNONE, LUA_TTABLE } from '../lua/abi.ts'
+import { LUA_TNIL, LUA_TTABLE } from '../lua/abi.ts'
+import {
+  checkCString,
+  checkInteger,
+  checkOption,
+  checkString,
+  isNoneOrNil,
+  optionalString,
+  typeError,
+  untilNul,
+} from './checks.ts'
 import { localTime, makeTime, strftime, utcTime, type TimeZone } from './time.ts'
 
 /** What FiveM's os library reaches of the process, which it has on servers. */
@@ -45,40 +56,8 @@ const PERMISSION_DENIED = 'Permission denied'
 const decoder = new TextDecoder()
 const encoder = new TextEncoder()
 
-/** Raises luaL_typeerror for argument `index`, which is not of `expected` type. */
-function typeError(args: HostArgs, index: number, expected: string): never {
-  throw new LuaArgumentError(index, `${expected} expected, got ${args.typeName(index)}`)
-}
-
-/** Whether an argument is none or nil, which luaL_opt takes for a missing one. */
-function isNoneOrNil(args: HostArgs, index: number): boolean {
-  const type = args.type(index)
-  return type === LUA_TNONE || type === LUA_TNIL
-}
-
-/** An argument as luaL_checklstring takes it: the bytes of a string, or of a number as Lua writes it. */
-function checkString(args: HostArgs, index: number): Uint8Array {
-  return args.stringBytes(index) ?? typeError(args, index, 'string')
-}
-
-/** An argument as luaL_optlstring takes it, or undefined when there is none. */
-function optionalString(args: HostArgs, index: number): Uint8Array | undefined {
-  return isNoneOrNil(args, index) ? undefined : checkString(args, index)
-}
-
-/** An argument as luaL_checkinteger takes it. */
-function checkInteger(args: HostArgs, index: number): bigint {
-  if (args.isIntegral(index)) return args.integer(index)
-  if (args.isNumber(index))
-    throw new LuaArgumentError(index, 'number has no integer representation')
-  return typeError(args, index, 'number')
-}
-
-/** The bytes of a format of os.date up to its first NUL, which ends the format. */
-function untilNul(bytes: Uint8Array): Uint8Array {
-  const end = bytes.indexOf(0)
-  return end === -1 ? bytes : bytes.subarray(0, end)
-}
+/** The categories os.setlocale takes, which FiveM checks but sets no locale of. */
+const LOCALE_CATEGORIES = ['all', 'collate', 'ctype', 'monetary', 'numeric', 'time']
 
 /**
  * The os library of FiveM's servers: Lua's, but that os.exit is gone,
@@ -88,7 +67,7 @@ function untilNul(bytes: Uint8Array): Uint8Array {
  * and os.rdtscp read clocks of the machine. Times are those of MSVC's
  * runtime, as FiveM's Windows build has them.
  */
-export function osLibrary(state: LuaState, host: OsHost): LuaValue {
+export function osLibrary(state: LuaState, host: OsHost): LuaRef {
   const now = () => Math.floor(host.wallClock() / 1000)
   const nanoseconds = () => BigInt(Math.floor(host.steadyClock() * 1000))
   const functions: [string, (args: HostArgs) => LuaValue | LuaValue[]][] = [
@@ -150,17 +129,11 @@ export function osLibrary(state: LuaState, host: OsHost): LuaValue {
         return [null, PERMISSION_DENIED, EACCES]
       },
     ],
-    [
-      'getenv',
-      (args) => {
-        const key = decoder.decode(checkString(args, 1)).toLowerCase()
-        return key === 'os' ? 'Windows' : null
-      },
-    ],
+    ['getenv', (args) => (checkCString(args, 1).toLowerCase() === 'os' ? 'Windows' : null)],
     [
       'createdir',
       (args) => {
-        const path = decoder.decode(checkString(args, 1))
+        const path = checkCString(args, 1)
         const result = host.createDirectory(path)
         if (result === 'created') return true
         return [
@@ -173,15 +146,15 @@ export function osLibrary(state: LuaState, host: OsHost): LuaValue {
     [
       'remove',
       (args) => {
-        const path = decoder.decode(checkString(args, 1))
+        const path = checkCString(args, 1)
         return host.remove(path) ? true : [null, `${path}: ${PERMISSION_DENIED}`, EACCES]
       },
     ],
     [
       'rename',
       (args) => {
-        const from = decoder.decode(checkString(args, 1))
-        const to = decoder.decode(checkString(args, 2))
+        const from = checkCString(args, 1)
+        const to = checkCString(args, 2)
         return host.rename(from, to)
           ? true
           : [null, `${from} -> ${to}: ${PERMISSION_DENIED}`, EACCES]
@@ -191,11 +164,8 @@ export function osLibrary(state: LuaState, host: OsHost): LuaValue {
       'setlocale',
       (args) => {
         const locale = optionalString(args, 1)
-        const category = isNoneOrNil(args, 2) ? 'all' : decoder.decode(checkString(args, 2))
-        if (!['all', 'collate', 'ctype', 'monetary', 'numeric', 'time'].includes(category)) {
-          throw new LuaArgumentError(2, `invalid option '${category}'`)
-        }
-        return locale ?? null
+        checkOption(args, 2, 'all', LOCALE_CATEGORIES)
+        return locale === undefined ? null : untilNul(locale)
       },
     ],
     [

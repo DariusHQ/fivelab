@@ -259,11 +259,14 @@ print(pcall(os.difftime, 10))`,
     expect(
       await run(`print(os.execute(), os.execute('dir'))
 print(os.getenv('OS'), os.getenv('Path'), pcall(os.getenv))
-print(os.setlocale(), os.setlocale('C'), os.setlocale('fr', 'time'), pcall(os.setlocale, 'C', 'colors'))`),
+print(os.setlocale(), os.setlocale('C'), os.setlocale('fr', 'time'), pcall(os.setlocale, 'C', 'colors'))
+print(os.getenv('os\\0path'), os.setlocale('fr\\0ench', 'time\\0zone'), pcall(os.setlocale, 'C', 'x\\0y'))`),
     ).toEqual([
       'true\tnil\tPermission denied\t13',
       "Windows\tnil\tfalse\tbad argument #1 to 'os.getenv' (string expected, got no value)",
       "nil\tC\tfr\tfalse\tbad argument #2 to 'os.setlocale' (invalid option 'colors')",
+      // FiveM reads these strings as C does, up to their first NUL.
+      "Windows\tfr\tfalse\tbad argument #2 to 'os.setlocale' (invalid option 'x')",
     ])
   })
 
@@ -330,7 +333,7 @@ print(os.createdir('@a\\\\windows'), os.createdir('@nothing'))`,
         'fxmanifest.lua': `fx_version 'cerulean'
 game 'gta5'
 server_script 'main.lua'`,
-        'main.lua': `print(os.remove('@a/one.txt'))
+        'main.lua': `print(os.remove('@a/one.txt\\0ignored'))
 print(os.remove('@a/one.txt'))
 print(os.remove('@b/b.txt'))
 print(os.remove('@c/c.txt'))
