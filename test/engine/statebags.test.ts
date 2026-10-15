@@ -236,14 +236,22 @@ describe('StateBags', () => {
     const value = pack(1)
     bag.set(0, 'k', value, false)
     value[0] = 2
-    expect(Array.from(bag.get('k')!)).toEqual([1])
+    // Node's Buffers give views of themselves where Uint8Arrays give copies.
+    const first = Buffer.from(pack(3))
+    bag.set(0, 'b', first, false)
+    first[0] = 4
+    const kept = Array.from(bag.get('b')!)
+    const second = Buffer.from(pack(5))
+    bag.set(0, 'b', second, false)
+    second[0] = 6
+    expect([Array.from(bag.get('k')!), kept, Array.from(bag.get('b')!)]).toEqual([[1], [3], [5]])
     bag.set(0, '', one(), true)
     bag.set(0, 'empty', new Uint8Array(), true)
     states.onChange.connect((_source, _bag, key) => key !== 'refused')
     bag.set(0, 'refused', one(), true)
     expect([sent, bag.keys(), states.register('all') === bag]).toEqual([
       [],
-      ['', 'empty', 'k'],
+      ['', 'b', 'empty', 'k'],
       true,
     ])
   })
@@ -481,7 +489,8 @@ describe('State bags across a session', () => {
     const { server, session } = await serverWithBags()
     const ann = await joined(session)
     runCommand(server.manager, 'pset 1 hp 100', 'system.console')
-    const value = pack(1)
+    // Node's Buffers give views of themselves where Uint8Arrays give copies.
+    const value = Buffer.from(pack(1))
     server.manager.states.get('global')!.set(0, 'sent', value, true)
     value.set(pack(2))
     ann.manager.tick()

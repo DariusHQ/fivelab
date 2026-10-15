@@ -86,13 +86,13 @@ export class StateBag {
     if (old === undefined) {
       // A bag that has no such key sends no nil, which would only come back to delete it.
       if (nil) return
-      this.#data.set(key, data.slice())
+      this.#data.set(key, new Uint8Array(data))
     } else if (nil) {
       this.#data.delete(key)
     } else if (equal(data, old)) {
       return
     } else {
-      this.#data.set(key, data.slice())
+      this.#data.set(key, new Uint8Array(data))
     }
     if (replicated) {
       const targets = this.#useParentTargets ? this.#states.targets : this.#routingTargets()

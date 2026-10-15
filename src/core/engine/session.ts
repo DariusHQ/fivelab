@@ -487,7 +487,7 @@ export class Session {
   sendStateBag(slot: number, bag: string, key: string, data: Uint8Array): void {
     // The bags send to no slot that no player has, which they forget as players leave.
     const player = this.#slots.get(slot)!
-    const bytes = data.slice()
+    const bytes = new Uint8Array(data)
     // Clients of FiveM take what their server sends as from its peer 0.
     player.client.receive(() => player.client.states.receive(0, bag, key, bytes))
   }
@@ -498,7 +498,7 @@ export class Session {
    * player: unless its state bags are in strict mode.
    */
   receiveStateBag(player: Player, bag: string, key: string, data: Uint8Array): void {
-    const bytes = data.slice()
+    const bytes = new Uint8Array(data)
     const { server } = this
     server.receive(() => {
       const { slot } = player

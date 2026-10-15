@@ -57,7 +57,12 @@ describe('MemoryFileSystem', () => {
     const data = new Uint8Array([1, 2])
     files.write('x.bin', data)
     data[0] = 9
+    // Node's Buffers give views of themselves where Uint8Arrays give copies.
+    const buffer = Buffer.from([3, 4])
+    files.write('y.bin', buffer)
+    buffer[0] = 9
     expect(files.read('x.bin')).toEqual(new Uint8Array([1, 2]))
+    expect(files.read('y.bin')).toEqual(new Uint8Array([3, 4]))
   })
 
   it('writes into files at offsets, with zeros past their ends, and resizes them', () => {

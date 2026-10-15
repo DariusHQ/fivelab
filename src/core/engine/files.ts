@@ -112,7 +112,7 @@ export class MemoryFileSystem implements FileSystem {
     const directory = this.#directories.get(parentOf(path))
     if (directory === undefined || this.#directories.has(path)) return false
     directory.set(nameOf(path), false)
-    this.#files.set(path, { bytes: data.slice(), length: data.length, shared: false })
+    this.#files.set(path, { bytes: new Uint8Array(data), length: data.length, shared: false })
     return true
   }
 
