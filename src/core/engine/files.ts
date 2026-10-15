@@ -57,67 +57,115 @@ export interface FileSystem {
   rename(from: string, to: string): boolean
 }
 
+/**
+ * Files that a MemoryFileSystem can take as it needs them, such as those
+ * of a directory of the host, by their paths in the source: "" for its
+ * root, and the names of what is in it below that, with slashes.
+ */
+export interface FileSource {
+  /** The entries of the directory at `path`, which the directory it is in listed. */
+  list(path: string): readonly FileEntry[]
+  /**
+   * The bytes of the file at `path`, which the directory it is in listed,
+   * and which the file system leaves as they are.
+   */
+  read(path: string): Uint8Array
+}
+
 const encoder = new TextEncoder()
 
 /** A file in memory, in a buffer that can have room past its end, for writes to grow into. */
 interface StoredFile {
   bytes: Uint8Array
   length: number
-  /** Whether read gave out a view of `bytes`, which writes then leave as it is. */
+  /** Whether something else has a view of `bytes`, a source or a caller of read, so that writes leave it as it is. */
   shared: boolean
+}
+
+/** Where a directory or a file of a MemoryFileSystem is in a source, until it takes what it has from there. */
+interface SourceEntry {
+  readonly source: FileSource
+  readonly path: string
 }
 
 /**
  * Files in memory, for hosts that keep none of their own, such as
- * browsers. It has a directory wherever its files are, and those it makes,
- * and lists their entries in the order they came.
+ * browsers, and for those whose files scripts are to leave as they are,
+ * which it takes from sources as it needs them: each directory of a
+ * source as its entries are first needed, and each file as its bytes are,
+ * and what is written to them stays in memory. It has a directory wherever
+ * its files are, and those it makes, and lists their entries in the order
+ * they came, those of a source in the order the source gave them.
  */
 export class MemoryFileSystem implements FileSystem {
-  /** The entries of each directory by its path: whether each is a directory. */
+  /** The entries of each directory by its path, but those of sources yet to list: whether each is a directory. */
   readonly #directories = new Map<string, Map<string, boolean>>([
     ['', new Map()],
     ['/', new Map()],
   ])
   readonly #files = new Map<string, StoredFile>()
+  /**
+   * The directories that are yet to list the entries of their sources, by
+   * their paths, which turn up as the directories they are in list theirs.
+   */
+  readonly #unlisted = new Map<string, SourceEntry>()
+  /** The files that are yet to read the bytes of their sources, by their paths. */
+  readonly #unread = new Map<string, SourceEntry>()
 
   /** Files with `files`, by their paths, with the directories that these name. */
   constructor(files: Readonly<Record<string, string | Uint8Array>> = {}) {
     for (const [path, data] of Object.entries(files)) addFile(this, normalizePath(path), data)
   }
 
+  /**
+   * Gives the directory at `path`, which it creates with those it is in
+   * unless they are there, the files of `source`, which it takes as it
+   * needs them. Throws if the directory has entries, or if a file is there.
+   */
+  mount(path: string, source: FileSource): void {
+    const directory = normalizePath(path)
+    this.makeDirectory(directory)
+    if (this.#directory(directory)!.size > 0) {
+      throw new Error(`The directory at ${directory} is not empty`)
+    }
+    this.#directories.delete(directory)
+    this.#unlisted.set(directory, { source, path: '' })
+  }
+
   list(path: string): readonly FileEntry[] | undefined {
-    const entries = this.#directories.get(path)
+    const entries = this.#directory(path)
     if (entries === undefined) return undefined
     return Array.from(entries, ([name, directory]) => ({ name, directory }))
   }
 
   read(path: string): Uint8Array | undefined {
-    const file = this.#files.get(path)
+    const file = this.#file(path)
     if (file === undefined) return undefined
     file.shared = true
     return file.bytes.subarray(0, file.length)
   }
 
   size(path: string): number | undefined {
-    return this.#files.get(path)?.length
+    return this.#file(path)?.length
   }
 
   readAt(path: string, offset: number, length: number): Uint8Array | undefined {
-    const file = this.#files.get(path)
+    const file = this.#file(path)
     if (file === undefined) return undefined
     return file.bytes.slice(Math.min(offset, file.length), Math.min(offset + length, file.length))
   }
 
   write(path: string, data: Uint8Array): boolean {
-    const directory = this.#directories.get(parentOf(path))
-    if (directory === undefined || this.#directories.has(path)) return false
+    const directory = this.#directory(parentOf(path))
+    if (directory === undefined || this.#entry(path) === true) return false
     directory.set(nameOf(path), false)
+    this.#unread.delete(path)
     this.#files.set(path, { bytes: new Uint8Array(data), length: data.length, shared: false })
     return true
   }
 
   writeAt(path: string, offset: number, data: Uint8Array): boolean {
-    const file = this.#files.get(path)
+    const file = this.#file(path)
     if (file === undefined) return false
     resizeFile(file, Math.max(file.length, offset + data.length))
     file.bytes.set(data, offset)
@@ -125,39 +173,44 @@ export class MemoryFileSystem implements FileSystem {
   }
 
   resize(path: string, length: number): boolean {
-    const file = this.#files.get(path)
+    const file = this.#file(path)
     if (file === undefined) return false
     resizeFile(file, length)
     return true
   }
 
   makeDirectory(path: string): void {
-    if (this.#directories.has(path)) return
-    if (this.#files.has(path)) throw new Error(`There is a file at ${path}`)
+    const entry = this.#entry(path)
+    if (entry === true) return
+    if (entry === false) throw new Error(`There is a file at ${path}`)
     const parent = parentOf(path)
     this.makeDirectory(parent)
-    this.#directories.get(parent)!.set(nameOf(path), true)
+    this.#directory(parent)!.set(nameOf(path), true)
     this.#directories.set(path, new Map())
   }
 
   remove(path: string): boolean {
-    if (!this.#files.delete(path)) return false
-    this.#directories.get(parentOf(path))!.delete(nameOf(path))
+    if (this.#entry(path) !== false) return false
+    this.#directory(parentOf(path))!.delete(nameOf(path))
+    this.#files.delete(path)
+    this.#unread.delete(path)
     return true
   }
 
   rename(from: string, to: string): boolean {
-    const isFile = this.#files.has(from)
-    if (!isFile && !this.#directories.has(from)) return false
-    const target = this.#directories.get(parentOf(to))
-    if (target === undefined || this.#files.has(to) || this.#directories.has(to)) return false
-    // A directory does not move into itself.
-    if (!isFile && to.startsWith(`${from}/`)) return false
-    this.#directories.get(parentOf(from))!.delete(nameOf(from))
-    target.set(nameOf(to), !isFile)
+    const directory = this.#entry(from)
+    if (directory === undefined) return false
+    const target = this.#directory(parentOf(to))
+    if (target === undefined || this.#entry(to) !== undefined) return false
+    // A directory does not move into itself, and nothing is in a file.
+    if (to.startsWith(`${from}/`)) return false
+    this.#directory(parentOf(from))!.delete(nameOf(from))
+    target.set(nameOf(to), directory)
     const moved = (path: string) => path === from || path.startsWith(`${from}/`)
     const renamed = (path: string) => to + path.slice(from.length)
-    for (const map of [this.#files, this.#directories] as Map<string, unknown>[]) {
+    // What is yet to come from sources moves too, and comes from where it was there.
+    const maps = [this.#files, this.#directories, this.#unlisted, this.#unread]
+    for (const map of maps as Map<string, unknown>[]) {
       for (const [path, value] of [...map]) {
         if (!moved(path)) continue
         map.delete(path)
@@ -166,11 +219,55 @@ export class MemoryFileSystem implements FileSystem {
     }
     return true
   }
+
+  /** Whether the entry at `path` is a directory, or undefined if there is none. */
+  #entry(path: string): boolean | undefined {
+    if (path === '' || path === '/') return true
+    return this.#directory(parentOf(path))?.get(nameOf(path))
+  }
+
+  /**
+   * The entries of the directory at `path`, if there is one, once it
+   * listed those of its source, if it was yet to.
+   */
+  #directory(path: string): Map<string, boolean> | undefined {
+    const listed = this.#directories.get(path)
+    if (listed !== undefined) return listed
+    // The directories of sources turn up as those they are in list their entries.
+    if (this.#entry(path) !== true) return undefined
+    const { source, path: inSource } = this.#unlisted.get(path)!
+    const entries = new Map<string, boolean>()
+    for (const { name, directory } of source.list(inSource)) {
+      entries.set(name, directory)
+      const at = childOf(path, name)
+      const entry = { source, path: inSource === '' ? name : `${inSource}/${name}` }
+      if (directory) this.#unlisted.set(at, entry)
+      else this.#unread.set(at, entry)
+    }
+    this.#unlisted.delete(path)
+    this.#directories.set(path, entries)
+    return entries
+  }
+
+  /** The file at `path`, if there is one, once it read the bytes of its source, if it was yet to. */
+  #file(path: string): StoredFile | undefined {
+    const stored = this.#files.get(path)
+    if (stored !== undefined) return stored
+    if (this.#entry(path) !== false) return undefined
+    const { source, path: inSource } = this.#unread.get(path)!
+    const bytes = source.read(inSource)
+    // A plain Uint8Array of the same bytes, whose slice copies them, where that of Node's Buffers gives views.
+    const view = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length)
+    const file = { bytes: view, length: bytes.length, shared: true }
+    this.#unread.delete(path)
+    this.#files.set(path, file)
+    return file
+  }
 }
 
 /**
  * Makes a file `length` bytes long, with zeros past what it had, in a
- * buffer that read gave out no view of. Growing past its room doubles it,
+ * buffer that nothing else has a view of. Growing past its room doubles it,
  * so that files written at their ends copy their bytes only now and then.
  */
 function resizeFile(file: StoredFile, length: number): void {
@@ -219,6 +316,12 @@ export function parentOf(path: string): string {
   const slash = path.lastIndexOf('/')
   if (slash === -1) return ''
   return slash === 0 ? '/' : path.slice(0, slash)
+}
+
+/** The path of the entry `name` of the directory at a normalized path. */
+function childOf(path: string, name: string): string {
+  if (path === '') return name
+  return path === '/' ? `/${name}` : `${path}/${name}`
 }
 
 /** The name of the last part of a normalized path. */

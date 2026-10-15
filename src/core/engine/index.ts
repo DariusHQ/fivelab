@@ -16,7 +16,7 @@ export {
   type EngineProcess,
   type EngineProcessOptions,
 } from './engine.ts'
-export { MemoryFileSystem, type FileEntry, type FileSystem } from './files.ts'
+export { MemoryFileSystem, type FileEntry, type FileSource, type FileSystem } from './files.ts'
 export {
   curlError,
   curlHeaders,

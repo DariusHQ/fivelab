@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { addFile, MemoryFileSystem, parentOf } from '../../src/core/engine/files.ts'
+import {
+  addFile,
+  MemoryFileSystem,
+  parentOf,
+  type FileSource,
+} from '../../src/core/engine/files.ts'
 
 const encode = (text: string) => new TextEncoder().encode(text)
 
@@ -214,6 +219,175 @@ describe('MemoryFileSystem', () => {
       [{ name: 'f.txt', directory: false }],
       undefined,
       undefined,
+    ])
+  })
+})
+
+/**
+ * A source of `files`, by their paths in it, which logs what is listed and
+ * read of it, and keeps the bytes it gives as Node's Buffers.
+ */
+function logged(files: Record<string, string>): {
+  source: FileSource
+  log: string[]
+  kept: Map<string, Buffer>
+} {
+  const backing = new MemoryFileSystem(files)
+  const log: string[] = []
+  const kept = new Map<string, Buffer>()
+  const source: FileSource = {
+    list: (path) => {
+      log.push(`list ${path}`)
+      return backing.list(path)!
+    },
+    read: (path) => {
+      log.push(`read ${path}`)
+      const bytes = kept.get(path) ?? Buffer.from(backing.read(path)!)
+      kept.set(path, bytes)
+      return bytes
+    },
+  }
+  return { source, log, kept }
+}
+
+describe('MemoryFileSystem with sources', () => {
+  it('lists the directories of sources and reads their files once, as it first needs them', () => {
+    const { source, log } = logged({ 'a.txt': 'a', 'd/b.txt': 'bb', 'd/e/c.txt': 'c' })
+    const files = new MemoryFileSystem({ 'own.txt': 'own' })
+    files.mount('./m/', source)
+    expect(log).toEqual([])
+    expect([
+      files.list(''),
+      files.list('m/none'),
+      files.read('m/d/b.txt'),
+      files.size('m/a.txt'),
+      files.read('m/d/e'),
+      files.list('m/d'),
+      files.readAt('m/d/b.txt', 1, 5),
+      files.read('m/a.txt'),
+      files.list('m/a.txt'),
+    ]).toEqual([
+      [
+        { name: 'own.txt', directory: false },
+        { name: 'm', directory: true },
+      ],
+      undefined,
+      encode('bb'),
+      1,
+      undefined,
+      [
+        { name: 'b.txt', directory: false },
+        { name: 'e', directory: true },
+      ],
+      encode('b'),
+      encode('a'),
+      undefined,
+    ])
+    expect(log).toEqual(['list ', 'list d', 'read d/b.txt', 'read a.txt'])
+  })
+
+  it('keeps what is written to the files of sources in memory, and their bytes as they were', () => {
+    const { source, kept } = logged({ 'a.txt': 'abc', 'b.txt': 'b', 'd/c.txt': 'c' })
+    const files = new MemoryFileSystem()
+    files.mount('m', source)
+    // Parts are copies, though the slice of Node's Buffers gives views.
+    files.readAt('m/b.txt', 0, 1)![0] = 0x21
+    const steps = [
+      files.writeAt('m/a.txt', 1, encode('X')),
+      files.write('m/d/new.txt', encode('n')),
+      files.remove('m/d/c.txt'),
+      files.resize('m/b.txt', 2),
+    ]
+    files.makeDirectory('m/d/f')
+    expect([
+      steps,
+      files.read('m/a.txt'),
+      files.read('m/b.txt'),
+      files.list('m/d'),
+      files.read('m/d/c.txt'),
+      Array.from(kept, ([path, bytes]) => `${path} ${new TextDecoder().decode(bytes)}`),
+    ]).toEqual([
+      [true, true, true, true],
+      encode('aXc'),
+      encode('b\0'),
+      [
+        { name: 'new.txt', directory: false },
+        { name: 'f', directory: true },
+      ],
+      undefined,
+      ['b.txt b', 'a.txt abc'],
+    ])
+  })
+
+  it('writes over the files of sources without reading them', () => {
+    const { source, log } = logged({ 'a.txt': 'a', 'd/b.txt': 'b' })
+    const files = new MemoryFileSystem()
+    files.mount('m', source)
+    expect([
+      files.write('m/a.txt', encode('new')),
+      files.write('m/d', encode('x')),
+      files.read('m/a.txt'),
+      files.list('m'),
+    ]).toEqual([
+      true,
+      false,
+      encode('new'),
+      [
+        { name: 'a.txt', directory: false },
+        { name: 'd', directory: true },
+      ],
+    ])
+    expect(log).toEqual(['list '])
+  })
+
+  it('moves the directories and files of sources, which take what they have from where they were', () => {
+    const { source, log } = logged({ 'a.txt': 'a', 'd/e/c.txt': 'c' })
+    const files = new MemoryFileSystem()
+    files.mount('m', source)
+    expect(files.rename('m/d', 'x')).toBe(true)
+    expect(log).toEqual(['list '])
+    expect(files.rename('m/a.txt', 'x/a.txt')).toBe(true)
+    expect(files.rename('x', 'x/e/inside')).toBe(false)
+    expect([
+      files.list('m'),
+      files.list('x'),
+      files.read('x/e/c.txt'),
+      files.read('x/a.txt'),
+      files.list('m/d'),
+    ]).toEqual([
+      [],
+      [
+        { name: 'e', directory: true },
+        { name: 'a.txt', directory: false },
+      ],
+      encode('c'),
+      encode('a'),
+      undefined,
+    ])
+    expect(log).toEqual(['list ', 'list d', 'list d/e', 'read d/e/c.txt', 'read a.txt'])
+  })
+
+  it('mounts sources at roots too, but only where there is nothing', () => {
+    const { source } = logged({ 'a.txt': 'a' })
+    const files = new MemoryFileSystem({ 'd/x.txt': 'x', 'f.txt': '' })
+    expect(() => files.mount('d', source)).toThrow(new Error('The directory at d is not empty'))
+    expect(() => files.mount('f.txt', source)).toThrow(new Error('There is a file at f.txt'))
+    files.mount('e/f', source)
+    const rooted = new MemoryFileSystem()
+    rooted.mount('', source)
+    rooted.mount('/', source)
+    expect([
+      files.list('e'),
+      files.read('e/f/a.txt'),
+      rooted.list(''),
+      rooted.read('a.txt'),
+      rooted.read('/a.txt'),
+    ]).toEqual([
+      [{ name: 'f', directory: true }],
+      encode('a'),
+      [{ name: 'a.txt', directory: false }],
+      encode('a'),
+      encode('a'),
     ])
   })
 })
