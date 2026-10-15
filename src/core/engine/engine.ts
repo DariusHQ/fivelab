@@ -64,7 +64,8 @@ export class Engine {
   /** Starts an engine with a server, at the time 0 of its clock. */
   static async create(options: EngineOptions): Promise<Engine> {
     const clock = new Clock()
-    const server = await createProcess(options, clock, 'server', 'server', options.server)
+    const lua = await createRuntime(options)
+    const server = createProcess(options, clock, 'server', 'server', lua, 0, options.server)
     return new Engine(options, clock, server)
   }
 
@@ -75,14 +76,18 @@ export class Engine {
 
   /**
    * Starts a client and connects it to the server with `identity`, as the
-   * player that it then is. It joins as the clock moves on.
+   * player that it then is. It joins as the clock moves on. Clients come in
+   * the order their runtimes are ready, which names them, so that those of
+   * connections that run at once each have a name of their own.
    */
   async connect(
     identity: PlayerIdentity = {},
     options: EngineProcessOptions = {},
   ): Promise<{ readonly client: ResourceManager; readonly player: Player }> {
+    const start = this.clock.now
+    const lua = await createRuntime(this.#options)
     const name = `client ${this.#clients.length + 1}`
-    const client = await createProcess(this.#options, this.clock, 'client', name, options)
+    const client = createProcess(this.#options, this.clock, 'client', name, lua, start, options)
     this.#clients.push(client)
     this.clock.every(this.#options.clientFrameTime ?? CLIENT_FRAME_TIME, () => client.tick())
     return { client, player: this.session.connect(client, identity) }
@@ -94,17 +99,22 @@ export class Engine {
   }
 }
 
-/** A process on `clock`, whose time starts as it does, with its own instance of cfxlua.wasm. */
-async function createProcess(
+/** An instance of cfxlua.wasm for a process. */
+function createRuntime(options: EngineOptions): Promise<LuaRuntime> {
+  return LuaRuntime.create(options.cfxlua, { output: () => {} })
+}
+
+/** A process on `clock` with its own instance of cfxlua.wasm, `lua`, whose time starts at `start` by the clock. */
+function createProcess(
   options: EngineOptions,
   clock: Clock,
   side: Side,
   name: string,
+  lua: LuaRuntime,
+  start: number,
   processOptions: EngineProcessOptions = {},
-): Promise<ResourceManager> {
-  const start = clock.now
+): ResourceManager {
   const { epoch } = options
-  const lua = await LuaRuntime.create(options.cfxlua, { output: () => {} })
   return new ResourceManager({
     ...(epoch === undefined ? {} : { wallClock: () => epoch + clock.now }),
     ...processOptions,

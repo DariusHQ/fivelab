@@ -83,6 +83,21 @@ end)`,
     ])
   })
 
+  it('names clients in the order they come, those of connections at once apart', async () => {
+    const { engine, take } = await createEngine()
+    engine.server
+      .addResource('a', {
+        files: { 'fxmanifest.lua': MANIFEST, 'server.lua': '', 'client.lua': `print('started')` },
+      })
+      .start()
+    const connections = await Promise.all([engine.connect(), engine.connect()])
+    engine.advance(500)
+    expect([take().sort(), engine.clients]).toEqual([
+      ['client 1: started', 'client 2: started'],
+      connections.map(({ client }) => client),
+    ])
+  })
+
   it('writes nowhere without output', async () => {
     const engine = await Engine.create({ cfxlua: await cfxlua() })
     engine.server
