@@ -2,27 +2,36 @@ import { describe, expect, it } from 'vitest'
 
 import packageJson from '../../package.json' with { type: 'json' }
 import { main } from '../../src/cli/main.ts'
+import { cfxlua } from '../lua/helpers.ts'
 
 /** Runs the command line tool with `args`, and returns its exit code with what it wrote. */
 async function run(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   let stdout = ''
   let stderr = ''
   const code = await main(args, {
+    cwd: process.cwd(),
+    env: {},
     stdout: (text) => {
       stdout += text
     },
     stderr: (text) => {
       stderr += text
     },
+    color: false,
+    cfxlua,
+    now: () => 0,
   })
   return { code, stdout, stderr }
 }
 
-const usage = `Usage: fiverunner [options]
+const usage = `Usage: fiverunner <command> [options]
+
+Commands:
+  test [paths...]  Run the tests of the project in this directory
 
 Options:
-  -h, --help     Show this help
-  -v, --version  Show the version of FiveRunner
+  -h, --help       Show this help
+  -v, --version    Show the version of FiveRunner
 `
 
 describe('The command line tool', () => {
