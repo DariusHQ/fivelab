@@ -5,7 +5,7 @@ import type { ResourceManager } from './manager.ts'
 import type { Resource } from './resource.ts'
 
 /**
- * What FiveLab's natives run with: the script runtime that called them, the
+ * What FiveRunner's natives run with: the script runtime that called them, the
  * resource it belongs to and the process around them.
  */
 export class NativeContext implements NativeCaller {

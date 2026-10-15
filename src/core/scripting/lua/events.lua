@@ -1,5 +1,5 @@
 --[[
-    FiveLab events: AddEventHandler, RemoveEventHandler, RegisterNetEvent and
+    FiveRunner events: AddEventHandler, RemoveEventHandler, RegisterNetEvent and
     TriggerEvent, and the routine the runtime calls with each event the
     resource gets.
 
@@ -17,10 +17,10 @@
     resource script runs, as in FiveM.
 
     Loaded by the runtime after the scheduler, with its host functions and
-    the table the FiveLab scripts share.
+    the table the FiveRunner scripts share.
 ]]
 
-local host, fivelab = ...
+local host, fiverunner = ...
 
 local type, pairs, tonumber, getmetatable = type, pairs, tonumber, getmetatable
 local table_unpack, table_insert = table.unpack, table.insert
@@ -29,7 +29,7 @@ local msgpack_unpack, msgpack_pack_args = msgpack.unpack, msgpack.pack_args
 
 local Citizen = Citizen
 local isServer = host.server
-local runWithBoundaryEnd = fivelab.runWithBoundaryEnd
+local runWithBoundaryEnd = fiverunner.runWithBoundaryEnd
 
 msgpack.set_string('string_compat')
 msgpack.set_integer('unsigned')

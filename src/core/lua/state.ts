@@ -190,7 +190,7 @@ export class HostArgs {
 
   /** The Lua type code of an argument (LUA_TNONE past the end). */
   type(index: number): number {
-    return this.state.runtime.exports.fl_type(this.L, index)
+    return this.state.runtime.exports.fr_type(this.L, index)
   }
 
   /** The type of an argument as Lua's argument errors name it: "no value", "light userdata" and so on. */
@@ -213,7 +213,7 @@ export class HostArgs {
    * string that converts to one exactly; any other value reads as 0.
    */
   integer(index: number): bigint {
-    return this.state.runtime.exports.fl_tointeger64(this.L, index)
+    return this.state.runtime.exports.fr_tointeger64(this.L, index)
   }
 
   /** The raw bytes of a string argument, or null for other types. */
@@ -224,12 +224,12 @@ export class HostArgs {
 
   /** Whether an argument converts to an integer, as lua_tointegerx tells. */
   isIntegral(index: number): boolean {
-    return this.state.runtime.exports.fl_isintegral(this.L, index) !== 0
+    return this.state.runtime.exports.fr_isintegral(this.L, index) !== 0
   }
 
   /** Whether an argument is a number or a string that converts to one, as lua_isnumber tells. */
   isNumber(index: number): boolean {
-    return this.state.runtime.exports.fl_isnumber(this.L, index) !== 0
+    return this.state.runtime.exports.fr_isnumber(this.L, index) !== 0
   }
 
   /**
@@ -245,7 +245,7 @@ export class HostArgs {
 
   /** An argument as lua_toboolean reads it: false for nil and false, true for any other value. */
   boolean(index: number): boolean {
-    return this.state.runtime.exports.fl_toboolean(this.L, index) !== 0
+    return this.state.runtime.exports.fr_toboolean(this.L, index) !== 0
   }
 
   /**
@@ -257,11 +257,11 @@ export class HostArgs {
   withField<T>(index: number, key: string, read: (at: number) => T): T {
     const ex = this.state.runtime.exports
     this.state.push(this.L, key)
-    ex.fl_gettable(this.L, index)
+    ex.fr_gettable(this.L, index)
     try {
-      return read(ex.fl_gettop(this.L))
+      return read(ex.fr_gettop(this.L))
     } finally {
-      ex.fl_settop(this.L, -2)
+      ex.fr_settop(this.L, -2)
     }
   }
 }
@@ -309,13 +309,13 @@ export class LuaState {
   /** Bytes allocated by this state. */
   get memoryUsed(): number {
     this.#checkOpen()
-    return this.runtime.exports.fl_memused(this.L) >>> 0
+    return this.runtime.exports.fr_memused(this.L) >>> 0
   }
 
   /** Allocation limit in bytes; 0 means unlimited. Allocations past it raise memory errors. */
   get memoryLimit(): number {
     this.#checkOpen()
-    return this.runtime.exports.fl_getmemlimit(this.L) >>> 0
+    return this.runtime.exports.fr_getmemlimit(this.L) >>> 0
   }
 
   set memoryLimit(bytes: number) {
@@ -323,14 +323,14 @@ export class LuaState {
     if (!Number.isInteger(bytes) || bytes < 0 || bytes > MAX_MEMORY_LIMIT) {
       throw new RangeError(`Invalid memory limit: ${bytes}`)
     }
-    this.runtime.exports.fl_setmemlimit(this.L, bytes)
+    this.runtime.exports.fr_setmemlimit(this.L, bytes)
   }
 
   openLibs(mask: number): void {
     this.#enter((L) => {
       const ex = this.runtime.exports
-      const top = ex.fl_gettop(L)
-      const status = ex.fl_openlibs(L, mask)
+      const top = ex.fr_gettop(L)
+      const status = ex.fr_openlibs(L, mask)
       if (status !== LUA_OK) throw this.#popError(L, status, top, false)
     })
   }
@@ -340,9 +340,9 @@ export class LuaState {
     const chunk = typeof source === 'string' ? new TextEncoder().encode(source) : source
     return this.#enter((L) => {
       const ex = this.runtime.exports
-      const top = ex.fl_gettop(L)
+      const top = ex.fr_gettop(L)
       const status = this.runtime.withChunk(chunk, chunkname, mode, (buf, length, name, modePtr) =>
-        ex.fl_load(L, buf, length, name, modePtr),
+        ex.fr_load(L, buf, length, name, modePtr),
       )
       if (status !== LUA_OK) throw this.#popError(L, status, top, false)
       return this.#popRef(L)
@@ -374,18 +374,18 @@ export class LuaState {
     return this.#enter(
       (L) => {
         const ex = this.runtime.exports
-        const base = ex.fl_gettop(L)
+        const base = ex.fr_gettop(L)
         this.push(L, fn)
         for (const arg of args) this.push(L, arg)
-        const status = ex.fl_pcall(L, args.length, LUA_MULTRET)
+        const status = ex.fr_pcall(L, args.length, LUA_MULTRET)
         if (status !== LUA_OK) throw this.#popError(L, status, base, true)
-        const top = ex.fl_gettop(L)
+        const top = ex.fr_gettop(L)
         const results: LuaValue[] = []
         for (let i = base + 1; i <= top; i++) {
-          const bytes = options.bytes === true && ex.fl_type(L, i) === LUA_TSTRING
+          const bytes = options.bytes === true && ex.fr_type(L, i) === LUA_TSTRING
           results.push(bytes ? this.readBytes(L, i) : this.read(L, i))
         }
-        ex.fl_settop(L, base)
+        ex.fr_settop(L, base)
         return results
       },
       options.onMain === true ? this.L : undefined,
@@ -399,11 +399,11 @@ export class LuaState {
   createTable(fields: readonly (readonly [key: string, value: LuaValue])[]): LuaRef {
     return this.#enter((L) => {
       const ex = this.runtime.exports
-      ex.fl_createtable(L, 0, fields.length)
+      ex.fr_createtable(L, 0, fields.length)
       for (const [key, value] of fields) {
         this.push(L, key)
         this.push(L, value)
-        ex.fl_rawset(L, -3)
+        ex.fr_rawset(L, -3)
       }
       return this.#popRef(L)
     })
@@ -418,7 +418,7 @@ export class LuaState {
     this.#enter((L) => {
       this.push(L, name)
       this.push(L, library)
-      this.runtime.exports.fl_setlib(L)
+      this.runtime.exports.fr_setlib(L)
     })
   }
 
@@ -426,11 +426,11 @@ export class LuaState {
   getGlobal(name: string): LuaValue {
     return this.#enter((L) => {
       const ex = this.runtime.exports
-      ex.fl_pushglobaltable(L)
+      ex.fr_pushglobaltable(L)
       this.push(L, name)
-      ex.fl_rawget(L, -2)
+      ex.fr_rawget(L, -2)
       const value = this.read(L, -1)
-      ex.fl_settop(L, -3)
+      ex.fr_settop(L, -3)
       return value
     })
   }
@@ -439,11 +439,11 @@ export class LuaState {
   setGlobal(name: string, value: LuaValue): void {
     this.#enter((L) => {
       const ex = this.runtime.exports
-      ex.fl_pushglobaltable(L)
+      ex.fr_pushglobaltable(L)
       this.push(L, name)
       this.push(L, value)
-      ex.fl_rawset(L, -3)
-      ex.fl_settop(L, -2)
+      ex.fr_rawset(L, -3)
+      ex.fr_settop(L, -2)
     })
   }
 
@@ -456,7 +456,7 @@ export class LuaState {
   cFunction(which: number, ...upvalues: LuaValue[]): LuaRef {
     return this.#enter((L) => {
       for (const value of upvalues) this.push(L, value)
-      this.runtime.exports.fl_pushcfunction(L, which, upvalues.length)
+      this.runtime.exports.fr_pushcfunction(L, which, upvalues.length)
       return this.#popRef(L)
     })
   }
@@ -476,7 +476,7 @@ export class LuaState {
     this.#checkOpen()
     if (options === null) {
       this.#watchdog = undefined
-      this.runtime.exports.fl_sethook(this.L, 0)
+      this.runtime.exports.fr_sethook(this.L, 0)
       return
     }
     const { timeoutMs, killAfterMs = timeoutMs * 2, interval = 1000 } = options
@@ -490,13 +490,13 @@ export class LuaState {
       throw new RangeError(`Invalid watchdog interval: ${interval}`)
     }
     this.#watchdog = { timeoutMs, killAfterMs, interval }
-    this.runtime.exports.fl_sethook(this.L, interval)
+    this.runtime.exports.fr_sethook(this.L, interval)
   }
 
   /** Runs a full garbage collection cycle. */
   collectGarbage(): void {
     this.#enter((L) => {
-      this.runtime.exports.fl_gc(L, LUA_GCCOLLECT, 0)
+      this.runtime.exports.fr_gc(L, LUA_GCCOLLECT, 0)
     })
   }
 
@@ -516,7 +516,7 @@ export class LuaState {
     // Finalizers may call host functions while the state closes.
     this.#sliceStart = performance.now()
     try {
-      this.runtime.exports.fl_close(this.L)
+      this.runtime.exports.fr_close(this.L)
     } catch (error) {
       throw this.runtime.escaped(error)
     } finally {
@@ -529,39 +529,39 @@ export class LuaState {
     const ex = this.runtime.exports
     switch (typeof value) {
       case 'undefined':
-        ex.fl_pushnil(L)
+        ex.fr_pushnil(L)
         return
       case 'boolean':
-        ex.fl_pushboolean(L, value ? 1 : 0)
+        ex.fr_pushboolean(L, value ? 1 : 0)
         return
       case 'number':
-        if (Number.isSafeInteger(value) && !Object.is(value, -0)) ex.fl_pushinteger(L, value)
-        else ex.fl_pushnumber(L, value)
+        if (Number.isSafeInteger(value) && !Object.is(value, -0)) ex.fr_pushinteger(L, value)
+        else ex.fr_pushnumber(L, value)
         return
       case 'bigint':
-        ex.fl_pushinteger64(L, BigInt.asIntN(64, value))
+        ex.fr_pushinteger64(L, BigInt.asIntN(64, value))
         return
       case 'string':
-        this.runtime.withString(value, (ptr, length) => ex.fl_pushlstring(L, ptr, length))
+        this.runtime.withString(value, (ptr, length) => ex.fr_pushlstring(L, ptr, length))
         return
       case 'object':
         if (value === null) {
-          ex.fl_pushnil(L)
+          ex.fr_pushnil(L)
         } else if (value instanceof Uint8Array) {
-          this.runtime.withBytes(value, (ptr, length) => ex.fl_pushlstring(L, ptr, length))
+          this.runtime.withBytes(value, (ptr, length) => ex.fr_pushlstring(L, ptr, length))
         } else if (value instanceof LuaFloat) {
-          ex.fl_pushnumber(L, value.value)
+          ex.fr_pushnumber(L, value.value)
         } else if (value instanceof LuaVector) {
-          ex.fl_pushvector(L, VECTOR_KIND[value.type], value.x, value.y, value.z, value.w)
+          ex.fr_pushvector(L, VECTOR_KIND[value.type], value.x, value.y, value.z, value.w)
         } else if (value instanceof LuaRef) {
           if (value.state !== this) throw new TypeError('LuaRef belongs to another Lua state')
           if (value.ref < 0) throw new TypeError('LuaRef has been released')
-          ex.fl_getref(L, value.ref)
+          ex.fr_getref(L, value.ref)
         } else if (value instanceof LuaHostFunction) {
           if (value.state !== this) {
             throw new TypeError('Host function belongs to another Lua state')
           }
-          ex.fl_pushhostfunction(L, value.id)
+          ex.fr_pushhostfunction(L, value.id)
         } else {
           throw new TypeError(`Cannot pass ${Object.prototype.toString.call(value)} to Lua`)
         }
@@ -574,25 +574,25 @@ export class LuaState {
   /** Reads the value at `index` on thread L. */
   read(L: Ptr, index: number): LuaValue {
     const ex = this.runtime.exports
-    const type = ex.fl_type(L, index)
+    const type = ex.fr_type(L, index)
     switch (type) {
       case LUA_TNONE:
       case LUA_TNIL:
         return null
       case LUA_TBOOLEAN:
-        return ex.fl_toboolean(L, index) !== 0
+        return ex.fr_toboolean(L, index) !== 0
       case LUA_TNUMBER: {
-        const n = ex.fl_tonumber(L, index)
-        if (ex.fl_isinteger(L, index) === 0 || Number.isSafeInteger(n)) return n
-        return ex.fl_tointeger64(L, index)
+        const n = ex.fr_tonumber(L, index)
+        if (ex.fr_isinteger(L, index) === 0 || Number.isSafeInteger(n)) return n
+        return ex.fr_tointeger64(L, index)
       }
       case LUA_TSTRING: {
-        const ptr = ex.fl_tolstring(L, index, this.runtime.out) >>> 0
+        const ptr = ex.fr_tolstring(L, index, this.runtime.out) >>> 0
         return this.runtime.readString(ptr, this.runtime.view.getUint32(this.runtime.out, true))
       }
       case LUA_TVECTOR: {
         const out = this.runtime.out
-        const kind = ex.fl_tovector(L, index, out)
+        const kind = ex.fr_tovector(L, index, out)
         const view = this.runtime.view
         // Components past a vector's size are unspecified, so only read the used ones.
         const size = kind === VECTOR_KIND.quat ? 4 : kind
@@ -606,7 +606,7 @@ export class LuaState {
         )
       }
       default: {
-        ex.fl_pushvalue(L, index)
+        ex.fr_pushvalue(L, index)
         return this.#popRef(L, REF_TYPES[type] ?? 'userdata')
       }
     }
@@ -614,7 +614,7 @@ export class LuaState {
 
   /** Reads a string at `index` as bytes. */
   readBytes(L: Ptr, index: number): Uint8Array {
-    const ptr = this.runtime.exports.fl_tolstring(L, index, this.runtime.out) >>> 0
+    const ptr = this.runtime.exports.fr_tolstring(L, index, this.runtime.out) >>> 0
     return this.runtime.readBytes(ptr, this.runtime.view.getUint32(this.runtime.out, true))
   }
 
@@ -625,7 +625,7 @@ export class LuaState {
   }
 
   /**
-   * Runs host function `fn` for the fivelab.call import. Only Lua errors and
+   * Runs host function `fn` for the fiverunner.call import. Only Lua errors and
    * fatal errors may leave it: any other exception would unwind Lua frames
    * without Lua noticing.
    */
@@ -662,7 +662,7 @@ export class LuaState {
     }
   }
 
-  /** Runs the watchdog for the fivelab.hook import. */
+  /** Runs the watchdog for the fiverunner.hook import. */
   hook(L: Ptr): number {
     if (this.#dead) throw this.#dead
     const watchdog = this.#watchdog
@@ -681,18 +681,18 @@ export class LuaState {
     return 1
   }
 
-  /** Handles the fivelab.panic import; returns the error to throw. */
+  /** Handles the fiverunner.panic import; returns the error to throw. */
   panic(L: Ptr): LuaFatalError {
     const ex = this.runtime.exports
     let message = 'error object is not a string'
-    if (ex.fl_type(L, -1) === LUA_TSTRING) {
-      const ptr = ex.fl_tolstring(L, -1, this.runtime.out) >>> 0
+    if (ex.fr_type(L, -1) === LUA_TSTRING) {
+      const ptr = ex.fr_tolstring(L, -1, this.runtime.out) >>> 0
       message = this.runtime.readString(ptr, this.runtime.view.getUint32(this.runtime.out, true))
     }
     return this.#die(`PANIC: unprotected error in call to Lua API (${message})`)
   }
 
-  /** Handles the fivelab.warn import: joins the pieces of a warning and reports it. */
+  /** Handles the fiverunner.warn import: joins the pieces of a warning and reports it. */
   warn(piece: Uint8Array, more: boolean): void {
     this.#warning += this.#warningDecoder.decode(piece, { stream: more })
     if (more) return
@@ -742,7 +742,7 @@ export class LuaState {
     }
     const L = thread ?? this.#threads.at(-1) ?? this.L
     const ex = this.runtime.exports
-    const top = ex.fl_gettop(L)
+    const top = ex.fr_gettop(L)
     if (this.#entries === 0) this.#sliceStart = performance.now()
     this.#entries++
     nestedCalls++
@@ -755,7 +755,7 @@ export class LuaState {
         !(error instanceof WebAssembly.Exception) &&
         !(error instanceof LuaFatalError)
       ) {
-        ex.fl_settop(L, top)
+        ex.fr_settop(L, top)
       }
       throw escaped
     } finally {
@@ -767,8 +767,8 @@ export class LuaState {
   /** Pops the value on top into the registry. */
   #popRef(L: Ptr, type?: LuaRefType): LuaRef {
     const ex = this.runtime.exports
-    const refType = type ?? REF_TYPES[ex.fl_type(L, -1)] ?? 'userdata'
-    const ref = new LuaRef(this, ex.fl_ref(L), refType)
+    const refType = type ?? REF_TYPES[ex.fr_type(L, -1)] ?? 'userdata'
+    const ref = new LuaRef(this, ex.fr_ref(L), refType)
     this.#finalizer.register(ref, ref.ref, ref)
     return ref
   }
@@ -777,24 +777,24 @@ export class LuaState {
   #popError(L: Ptr, status: number, base: number, traceback: boolean): LuaError {
     const ex = this.runtime.exports
     const runtime = this.runtime
-    if (ex.fl_type(L, -1) !== LUA_TSTRING && ex.fl_type(L, -1) !== LUA_TNUMBER) {
-      ex.fl_tostring(L, -1)
+    if (ex.fr_type(L, -1) !== LUA_TSTRING && ex.fr_type(L, -1) !== LUA_TNUMBER) {
+      ex.fr_tostring(L, -1)
     }
-    const messagePtr = ex.fl_tolstring(L, -1, runtime.out) >>> 0
+    const messagePtr = ex.fr_tolstring(L, -1, runtime.out) >>> 0
     const message = runtime.readString(messagePtr, runtime.view.getUint32(runtime.out, true))
     let luaTraceback: string | undefined
     if (traceback) {
-      const ptr = ex.fl_traceback(L, runtime.out) >>> 0
+      const ptr = ex.fr_traceback(L, runtime.out) >>> 0
       if (ptr !== 0) {
         luaTraceback = runtime.readString(ptr, runtime.view.getUint32(runtime.out, true))
       }
     }
-    ex.fl_settop(L, base)
+    ex.fr_settop(L, base)
     return new LuaError(message, LuaError.kindOf(status), luaTraceback)
   }
 
   #release(ref: number): void {
     if (this.#closed || this.dead) return
-    this.runtime.exports.fl_unref(this.#threads.at(-1) ?? this.L, ref)
+    this.runtime.exports.fr_unref(this.#threads.at(-1) ?? this.L, ref)
   }
 }

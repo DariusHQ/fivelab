@@ -1,5 +1,5 @@
 {
-  "name": "fivelab",
+  "name": "fiverunner",
   "version": "0.0.0",
   "private": true,
   "description": "Run FiveM resources (Lua + NUI) in your browser and in CI. No GTA V, no server, no restarts.",
@@ -13,11 +13,11 @@
     "testing",
     "ci"
   ],
-  "homepage": "https://github.com/DariusHQ/fivelab#readme",
-  "bugs": "https://github.com/DariusHQ/fivelab/issues",
+  "homepage": "https://github.com/DariusHQ/fiverunner#readme",
+  "bugs": "https://github.com/DariusHQ/fiverunner/issues",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DariusHQ/fivelab.git"
+    "url": "git+https://github.com/DariusHQ/fiverunner.git"
   },
   "license": "MIT",
   "author": "DariusHQ",

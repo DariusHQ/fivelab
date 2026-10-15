@@ -7,7 +7,7 @@ export interface WrappedNative {
   readonly params: readonly { readonly name: string; readonly type: ParamType }[]
   /**
    * The lines of documentation FiveM's file for the native has before the
-   * function. FiveLab writes empty comments in their place, so that line
+   * function. FiveRunner writes empty comments in their place, so that line
    * numbers in stack traces are FiveM's.
    */
   readonly docLines?: number

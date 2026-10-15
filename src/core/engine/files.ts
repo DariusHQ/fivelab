@@ -8,9 +8,9 @@ export interface FileEntry {
 }
 
 /**
- * The files of a process as its host keeps them, which FiveLab reads as
+ * The files of a process as its host keeps them, which FiveRunner reads as
  * FiveM reads those of its file system: the files of its resources, and on
- * servers, those of their config. FiveLab names them by paths that
+ * servers, those of their config. FiveRunner names them by paths that
  * normalizePath normalized, with slashes and no . parts, which are relative
  * to the root of the files unless absolute, such as C:/server or /srv.
  */

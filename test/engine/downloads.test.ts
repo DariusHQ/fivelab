@@ -400,7 +400,7 @@ describe('The resources of servers on clients', () => {
     starting.onStart.connect(() => client.manager.tick())
     starting.start()
     expect(client.diagnostics).toEqual([
-      `starting: FiveM's client would stop with the error "Couldn't load resource starting: Could not open resource metadata file - no such file.", and start none of the resources it downloaded. FiveLab starts none of them, but goes on.`,
+      `starting: FiveM's client would stop with the error "Couldn't load resource starting: Could not open resource metadata file - no such file.", and start none of the resources it downloaded. FiveRunner starts none of them, but goes on.`,
     ])
   })
 
@@ -476,7 +476,7 @@ describe('The resources of servers on clients', () => {
     load(first)
     // FiveM's client stops at the first.
     expect(first.diagnostics).toEqual([
-      `broken: FiveM's client would stop with the error "Couldn't load resource broken: Could not parse resource metadata file resources:/broken//fxmanifest.lua: /fxmanifest.lua:1: unexpected symbol near '='", and start none of the resources it downloaded. FiveLab starts none of them, but goes on.`,
+      `broken: FiveM's client would stop with the error "Couldn't load resource broken: Could not parse resource metadata file resources:/broken//fxmanifest.lua: /fxmanifest.lua:1: unexpected symbol near '='", and start none of the resources it downloaded. FiveRunner starts none of them, but goes on.`,
     ])
     write(manifest())
     for (const resource of broken) {
@@ -487,7 +487,7 @@ describe('The resources of servers on clients', () => {
     join(session, second.manager)
     load(second)
     expect(second.diagnostics).toEqual([
-      `needs: FiveM's client would stop with the error "Couldn't start resource needs.", which FiveLab does not emulate: it goes on.`,
+      `needs: FiveM's client would stop with the error "Couldn't start resource needs.", which FiveRunner does not emulate: it goes on.`,
     ])
   })
 })

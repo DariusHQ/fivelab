@@ -12,7 +12,7 @@ interface Timer {
 
 /**
  * A clock that moves only when it is told to, as tests and the tools of
- * FiveLab move it, and runs what is due at the times it passes: as FiveM's
+ * FiveRunner move it, and runs what is due at the times it passes: as FiveM's
  * server runs its frames every 50 milliseconds, and clients their game
  * frames. Its time starts at 0, and is in milliseconds, which need not be
  * whole.

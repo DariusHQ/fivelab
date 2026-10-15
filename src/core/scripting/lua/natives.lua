@@ -1,5 +1,5 @@
 --[[
-FiveLab's native loader, which behaves like FiveM's natives_loader.lua.
+FiveRunner's native loader, which behaves like FiveM's natives_loader.lua.
 
 Natives load on first use: _G gets an __index metamethod that asks
 Citizen.LoadNative for the Lua code of a missing global and runs it. The code

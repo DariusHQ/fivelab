@@ -8,7 +8,7 @@
 -- What that function returns adds name_extra, the JSON of the value it gets,
 -- for manifests that write name 'value' { ... }.
 --
--- The chunk gets FiveLab's function that takes an entry with where the
+-- The chunk gets FiveRunner's function that takes an entry with where the
 -- manifest defined it, and returns the function that runs a manifest.
 
 local add = ...

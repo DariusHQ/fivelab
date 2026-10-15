@@ -23,7 +23,7 @@ async function sessionWith(count: number): Promise<{
   return { server, clients, session }
 }
 
-/** A manifest for clients that runs main.lua, with natives FiveLab has. */
+/** A manifest for clients that runs main.lua, with natives FiveRunner has. */
 const CLIENT_SCRIPT = [
   ['fx_version', 'cerulean'],
   ['client_script', 'main.lua'],
@@ -142,11 +142,11 @@ TriggerClientEvent('hello', 3, 'nobody')`,
     ])
   })
 
-  it('go nowhere from clients that are not connected, which FiveLab says', async () => {
+  it('go nowhere from clients that are not connected, which FiveRunner says', async () => {
     const client = await createProcess({ side: 'client' })
     client.add('a', { 'main.lua': `TriggerServerEvent('ping')` }, CLIENT_SCRIPT).start()
     expect(client.diagnostics).toEqual([
-      "a: TriggerServerEvent sent ping to no server, as FiveLab's client is not connected to one.",
+      "a: TriggerServerEvent sent ping to no server, as FiveRunner's client is not connected to one.",
     ])
   })
 
@@ -159,7 +159,7 @@ TriggerClientEventInternal('x', '-1', nil, 3)`,
       })
       .start()
     expect(server.diagnostics).toEqual([
-      'a: TriggerClientEventInternal was given no payload, but a length of 3: FiveM would read that many bytes from nowhere, and crash. FiveLab sends no payload.',
+      'a: TriggerClientEventInternal was given no payload, but a length of 3: FiveM would read that many bytes from nowhere, and crash. FiveRunner sends no payload.',
     ])
     const client = await createProcess({ side: 'client' })
     client
@@ -173,9 +173,9 @@ TriggerServerEventInternal('y', nil, 2)`,
       )
       .start()
     expect(client.diagnostics).toEqual([
-      'b: TriggerServerEventInternal was given no event name: FiveM would read it from nowhere, and crash. FiveLab sends nothing.',
-      'b: TriggerServerEventInternal was given no payload, but a length of 2: FiveM would read that many bytes from nowhere, and crash. FiveLab sends no payload.',
-      "b: TriggerServerEvent sent y to no server, as FiveLab's client is not connected to one.",
+      'b: TriggerServerEventInternal was given no event name: FiveM would read it from nowhere, and crash. FiveRunner sends nothing.',
+      'b: TriggerServerEventInternal was given no payload, but a length of 2: FiveM would read that many bytes from nowhere, and crash. FiveRunner sends no payload.',
+      "b: TriggerServerEvent sent y to no server, as FiveRunner's client is not connected to one.",
     ])
   })
 

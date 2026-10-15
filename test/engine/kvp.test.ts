@@ -235,9 +235,9 @@ print(StartFindKvp(''), StartFindKvp(''))`,
       }),
     ).toEqual(['[script:a] nil\tnil\tnil'])
     expect(proc.diagnostics).toEqual([
-      'a: FindKvp was given -1, which is no handle: FiveM sets no result, so the script reads the handle as the string, which can crash. FiveLab returns nil.',
-      `a: FindKvp was given ${FIND_HANDLES}, which is no handle: FiveM sets no result, so the script reads the handle as the string, which can crash. FiveLab returns nil.`,
-      'a: FindKvp was given handle 3, which no search has: FiveM reads its search all the same, and crashes. FiveLab returns nil.',
+      'a: FindKvp was given -1, which is no handle: FiveM sets no result, so the script reads the handle as the string, which can crash. FiveRunner returns nil.',
+      `a: FindKvp was given ${FIND_HANDLES}, which is no handle: FiveM sets no result, so the script reads the handle as the string, which can crash. FiveRunner returns nil.`,
+      'a: FindKvp was given handle 3, which no search has: FiveM reads its search all the same, and crashes. FiveRunner returns nil.',
     ])
   })
 

@@ -5,7 +5,7 @@ import type { NativeContext } from '../context.ts'
 /** Says that a native was given NULL for a reference, which FiveM makes a C++ string of all the same. */
 export function nullReference(ctx: NativeContext, native: string, instead: string): void {
   ctx.diagnose(
-    `${native} was given nil for the reference, which FiveM reads as a string all the same: its behavior is undefined, and it can crash. FiveLab ${instead}.`,
+    `${native} was given nil for the reference, which FiveM reads as a string all the same: its behavior is undefined, and it can crash. FiveRunner ${instead}.`,
   )
 }
 
@@ -26,7 +26,7 @@ export function refNatives(): NativeDefinition<NativeContext>[] {
         const duplicate = ctx.manager.duplicateFunctionReference(ref)
         if (duplicate === null && ref.startsWith(`${CALLBACK_RESOURCE}:`)) {
           ctx.diagnose(
-            `DuplicateFunctionReference was given ${ref}, which names no callback that is left: FiveM would return a reference by an index it does not set. FiveLab returns nil.`,
+            `DuplicateFunctionReference was given ${ref}, which names no callback that is left: FiveM would return a reference by an index it does not set. FiveRunner returns nil.`,
           )
         }
         return duplicate

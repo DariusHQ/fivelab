@@ -4,7 +4,7 @@ import { Session, type Player, type PlayerIdentity } from '../../src/core/engine
 import { Extension, pack, toJson } from '../../src/core/engine/msgpack.ts'
 import { createProcess, join, runCommand, type TestProcess } from './helpers.ts'
 
-/** A manifest for clients that runs main.lua, with natives FiveLab has. */
+/** A manifest for clients that runs main.lua, with natives FiveRunner has. */
 const CLIENT_SCRIPT = [
   ['fx_version', 'cerulean'],
   ['client_script', 'main.lua'],
@@ -367,7 +367,7 @@ end)`)
     expect(player.state).toBe('joined')
   })
 
-  it('keep the functions for cards that come as references of FiveLab, as holders of them', async () => {
+  it('keep the functions for cards that come as references of FiveRunner, as holders of them', async () => {
     const { server, session } =
       await serverWith(`AddEventHandler('playerConnecting', function(_, _, deferrals)
     deferrals.defer()
@@ -440,9 +440,9 @@ end)`)
     server.manager.tick()
     expect(player.rejection).toBe('Resource prevented connection.')
     expect(server.diagnostics).toEqual([
-      'a: setKickReason was given an array, which msgpack fails to convert to a string: msgpack throws then, which FiveLab does not emulate, and it ignores the call.',
-      'a: deferrals.update was given an integer, which msgpack fails to convert to a string: msgpack throws then, which FiveLab does not emulate, and it ignores the call.',
-      'a: deferrals.presentCard was given a card with a map whose keys are not all of the type of its first, which FiveM fails to convert to JSON: msgpack throws then, which FiveLab does not emulate, and it ignores the call.',
+      'a: setKickReason was given an array, which msgpack fails to convert to a string: msgpack throws then, which FiveRunner does not emulate, and it ignores the call.',
+      'a: deferrals.update was given an integer, which msgpack fails to convert to a string: msgpack throws then, which FiveRunner does not emulate, and it ignores the call.',
+      'a: deferrals.presentCard was given a card with a map whose keys are not all of the type of its first, which FiveM fails to convert to JSON: msgpack throws then, which FiveRunner does not emulate, and it ignores the call.',
     ])
   })
 

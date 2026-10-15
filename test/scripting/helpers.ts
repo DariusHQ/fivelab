@@ -74,7 +74,7 @@ export function scriptNatives(
 }
 
 /**
- * Natives that FiveLab's scripts call before any resource script runs, as
+ * Natives that FiveRunner's scripts call before any resource script runs, as
  * FiveM's do: on servers, the handler of HTTP responses registers the
  * resource for their event. The test's natives can replace them.
  */

@@ -45,7 +45,7 @@ export type ValueType =
 export type PointerType = `${IntType | 'long' | 'float' | 'BOOL' | 'bool' | 'Vector3'}*`
 
 /**
- * 'buffer' is FiveLab's name for a char* parameter that FiveM reads as a
+ * 'buffer' is FiveRunner's name for a char* parameter that FiveM reads as a
  * buffer whose length is the next argument, such as an event payload, and
  * 'bytes' for one that a native reads as bytes rather than as text: all
  * those of the string the script passed, NULs included.

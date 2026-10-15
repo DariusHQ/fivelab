@@ -26,7 +26,7 @@ export class FilesystemPermissions {
  * Adds the commands with which FiveM's servers give resources permissions
  * to the default console, as FiveM adds them: add_filesystem_permission,
  * which takes write or read, and add_unsafe_worker_permission and
- * add_unsafe_child_process_permission, for JavaScript, which FiveLab does
+ * add_unsafe_child_process_permission, for JavaScript, which FiveRunner does
  * not run. They give nothing once the server ended its initial
  * configuration, and warn about it.
  */

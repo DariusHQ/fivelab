@@ -14,7 +14,7 @@ describe('constraints', () => {
     const constraints = new Constraints()
     constraints.register('on', true)
     constraints.register('off', false)
-    constraints.register('name', 'fivelab')
+    constraints.register('name', 'fiverunner')
     constraints.register('build', 100)
     const cases: [string, ConstraintResult][] = [
       ['', 'none'],
@@ -28,8 +28,8 @@ describe('constraints', () => {
       ['/off:true', { error: 'off needs to be enabled' }],
       ['/off:false', 'pass'],
       ['/name', 'pass'],
-      ['/name:fivelab', 'pass'],
-      ['/name:FiveLab', { error: 'name needs to be FiveLab' }],
+      ['/name:fiverunner', 'pass'],
+      ['/name:FiveRunner', { error: 'name needs to be FiveRunner' }],
       ['/build', 'pass'],
       ['/build:100', 'pass'],
       ['/build:-5', 'pass'],

@@ -56,7 +56,7 @@ export class ConsoleBuffer {
       const printing = this.#manager.currentResource!
       this.#manager.output.diagnose(
         printing.name,
-        `A console listener printed while it heard of prints, ${MAX_LISTENER_DEPTH} deep: FiveM tells listeners of what they print as they print it, so a listener that prints whatever it hears of recurses until the server crashes. FiveLab told listeners of no more prints until the first.`,
+        `A console listener printed while it heard of prints, ${MAX_LISTENER_DEPTH} deep: FiveM tells listeners of what they print as they print it, so a listener that prints whatever it hears of recurses until the server crashes. FiveRunner told listeners of no more prints until the first.`,
       )
       return
     }

@@ -33,7 +33,7 @@ function payloadOf(
   if (payload !== null) return payload
   if (length !== 0) {
     ctx.diagnose(
-      `${native} was given no payload, but a length of ${length}: FiveM would read that many bytes from nowhere, and crash. FiveLab sends no payload.`,
+      `${native} was given no payload, but a length of ${length}: FiveM would read that many bytes from nowhere, and crash. FiveRunner sends no payload.`,
     )
   }
   return NO_PAYLOAD
@@ -53,7 +53,7 @@ export function networkNatives(side: Side): NativeDefinition<NativeContext>[] {
           // FiveM's client does not check the name, which it reads as it sends it.
           if (eventName === null) {
             ctx.diagnose(
-              'TriggerServerEventInternal was given no event name: FiveM would read it from nowhere, and crash. FiveLab sends nothing.',
+              'TriggerServerEventInternal was given no event name: FiveM would read it from nowhere, and crash. FiveRunner sends nothing.',
             )
             return
           }
@@ -61,7 +61,7 @@ export function networkNatives(side: Side): NativeDefinition<NativeContext>[] {
           const { player } = ctx.manager
           if (player === undefined) {
             ctx.diagnose(
-              `TriggerServerEvent sent ${eventName} to no server, as FiveLab's client is not connected to one.`,
+              `TriggerServerEvent sent ${eventName} to no server, as FiveRunner's client is not connected to one.`,
             )
             return
           }
@@ -84,7 +84,7 @@ export function networkNatives(side: Side): NativeDefinition<NativeContext>[] {
           }
           if (eventName === null) {
             ctx.diagnose(
-              'TriggerLatentServerEventInternal was given no event name: FiveM would read it from nowhere, and crash. FiveLab sends nothing.',
+              'TriggerLatentServerEventInternal was given no event name: FiveM would read it from nowhere, and crash. FiveRunner sends nothing.',
             )
             return
           }
@@ -97,7 +97,7 @@ export function networkNatives(side: Side): NativeDefinition<NativeContext>[] {
           const { player } = ctx.manager
           if (player === undefined) {
             ctx.diagnose(
-              `TriggerLatentServerEvent sent ${eventName} to no server, as FiveLab's client is not connected to one.`,
+              `TriggerLatentServerEvent sent ${eventName} to no server, as FiveRunner's client is not connected to one.`,
             )
           }
           const deliveries =

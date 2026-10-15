@@ -22,7 +22,7 @@ export type ResourceState = 'uninitialized' | 'stopped' | 'starting' | 'started'
 export interface ResourceDefinition {
   /**
    * Files to give the resource, by their paths in it, such as client.lua,
-   * which FiveLab adds to the files of the process in the directory of the
+   * which FiveRunner adds to the files of the process in the directory of the
    * resource; on clients, only those that FiveM's server sends them. Without
    * them, the resource has the files that are there.
    */
@@ -340,13 +340,13 @@ export class Resource {
    * Creates the runtime and loads the scripts into it, as FiveM does for a
    * resource with scripts that its Lua runtime handles: those with ".lua" in
    * their name. On clients, it says when FiveM would give the scripts older
-   * natives than FiveLab does.
+   * natives than FiveRunner does.
    */
   #createRuntime(): void {
     if (this.#runtime !== null) {
       this.manager.output.diagnose(
         this.name,
-        `${this.name} was started while it started. FiveM would then create another runtime for it and load its scripts again in both runtimes, which FiveLab does not emulate: it keeps the runtime it has.`,
+        `${this.name} was started while it started. FiveM would then create another runtime for it and load its scripts again in both runtimes, which FiveRunner does not emulate: it keeps the runtime it has.`,
       )
       return
     }
@@ -355,7 +355,7 @@ export class Resource {
       if (!path.includes('.lua')) {
         this.manager.output.diagnose(
           this.name,
-          `FiveLab runs only Lua scripts, so it skips ${path}.`,
+          `FiveRunner runs only Lua scripts, so it skips ${path}.`,
         )
       }
     }
@@ -367,7 +367,7 @@ export class Resource {
       if (natives !== 'natives_universal.lua') {
         this.manager.output.diagnose(
           this.name,
-          `FiveM would give the scripts of ${this.name} the natives of ${natives}, by the versions its manifest names, which FiveLab does not have: it gives them those of natives_universal.lua, as FiveM does for resources with fx_version 'adamant' or later.`,
+          `FiveM would give the scripts of ${this.name} the natives of ${natives}, by the versions its manifest names, which FiveRunner does not have: it gives them those of natives_universal.lua, as FiveM does for resources with fx_version 'adamant' or later.`,
         )
       }
     }

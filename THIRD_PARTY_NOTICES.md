@@ -1,6 +1,6 @@
 # Third-party notices
 
-FiveLab's own code is licensed under the MIT License (see [LICENSE](LICENSE)).
+FiveRunner's own code is licensed under the MIT License (see [LICENSE](LICENSE)).
 
 `src/core/lua/cfxlua.wasm` is compiled from the projects below, at the commits pinned
 under [native/vendor](native/vendor), together with the Emscripten runtime libraries.
@@ -40,7 +40,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ## OpenGL Mathematics (GLM)
 
 [citizenfx/glm](https://github.com/citizenfx/glm). GLM is offered under the Happy Bunny
-License or the MIT License; FiveLab uses it under the MIT License.
+License or the MIT License; FiveRunner uses it under the MIT License.
 
 ```text
 Copyright (c) 2005 - G-Truc Creation
@@ -205,7 +205,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ### Emscripten
 
 Emscripten is available under the MIT License and the University of Illinois/NCSA Open
-Source License; FiveLab uses it under the MIT License.
+Source License; FiveRunner uses it under the MIT License.
 
 ```text
 Copyright (c) 2010-2014 Emscripten authors, see AUTHORS file.

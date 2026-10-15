@@ -230,8 +230,8 @@ TriggerLatentServerEvent('up', 0, 'z')`,
       .start()
     client.manager.tick()
     expect(client.diagnostics).toEqual([
-      'c: TriggerLatentServerEventInternal was given no event name: FiveM would read it from nowhere, and crash. FiveLab sends nothing.',
-      "c: TriggerLatentServerEvent sent up to no server, as FiveLab's client is not connected to one.",
+      'c: TriggerLatentServerEventInternal was given no event name: FiveM would read it from nowhere, and crash. FiveRunner sends nothing.',
+      "c: TriggerLatentServerEvent sent up to no server, as FiveRunner's client is not connected to one.",
     ])
   })
 

@@ -73,7 +73,7 @@ export class ResourceScanner {
       resources: [],
       messages: [],
     }
-    // FiveM scans its system resources too, which FiveLab has none of.
+    // FiveM scans its system resources too, which FiveRunner has none of.
     this.#scanDirectory(RESOURCES, result)
     let errors = 0
     let warnings = 0
@@ -179,7 +179,7 @@ export class ResourceScanner {
           const instead = name === 'chat' ? ', unless resources_useSystemChat is false' : ''
           output.diagnose(
             name,
-            `FiveM's server leaves out ${path}: it has its own ${name} among its system resources, which it takes instead${instead}. FiveLab has no system resources.`,
+            `FiveM's server leaves out ${path}: it has its own ${name} among its system resources, which it takes instead${instead}. FiveRunner has no system resources.`,
           )
           continue
         }

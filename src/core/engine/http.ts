@@ -45,7 +45,7 @@ export const USER_AGENT = 'FXServer/PerformHttpRequest'
 /** How long FiveM's server waits for responses to start. */
 export const HTTP_TIMEOUT = 5000
 
-/** What curl_easy_strerror says of the codes of the failures FiveLab knows. */
+/** What curl_easy_strerror says of the codes of the failures FiveRunner knows. */
 const CURL_ERRORS: Readonly<Record<number, string>> = {
   1: 'Unsupported protocol',
   3: 'URL using bad/illegal format or missing URL',

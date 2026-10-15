@@ -1,5 +1,5 @@
 --[[
-    FiveLab state bags: GlobalState, and Entity and Player, whose state
+    FiveRunner state bags: GlobalState, and Entity and Player, whose state
     fields are the state bags of entities and players, as FiveM's scheduler
     defines them.
 

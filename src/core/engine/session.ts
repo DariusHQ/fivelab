@@ -618,7 +618,7 @@ export class Session {
       if (failed !== undefined) {
         client.output.diagnose(
           failed.name,
-          `FiveM's client would stop with the error "Couldn't load resource ${failed.name}: ${failed.error.message}", and start none of the resources it downloaded. FiveLab starts none of them, but goes on.`,
+          `FiveM's client would stop with the error "Couldn't load resource ${failed.name}: ${failed.error.message}", and start none of the resources it downloaded. FiveRunner starts none of them, but goes on.`,
         )
         return
       }
@@ -629,7 +629,7 @@ export class Session {
           if (resource.start()) continue
           client.output.diagnose(
             resource.name,
-            `FiveM's client would stop with the error "Couldn't start resource ${resource.name}.", which FiveLab does not emulate: it goes on.`,
+            `FiveM's client would stop with the error "Couldn't start resource ${resource.name}.", which FiveRunner does not emulate: it goes on.`,
           )
         }
       })

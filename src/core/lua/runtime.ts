@@ -138,7 +138,7 @@ export class LuaRuntime {
   newState(options: LuaStateOptions = {}): LuaState {
     this.checkEnter()
     const id = this.#nextStateId++
-    const L = this.#exports.fl_newstate(id)
+    const L = this.#exports.fr_newstate(id)
     if (L === 0) throw new RangeError('Not enough memory to create a Lua state')
     const state = new LuaState(this, id, L, options.onWarning)
     this.#states.set(id, state)
@@ -185,7 +185,7 @@ export class LuaRuntime {
       return this.#importDepth > 0 ? error : this.crash(error)
     }
     if (error instanceof LuaFatalError) {
-      if (this.#importDepth === 0) this.#exports.fl_stackrestore(this.#stackBase)
+      if (this.#importDepth === 0) this.#exports.fr_stackrestore(this.#stackBase)
       return error
     }
     if (error instanceof WebAssembly.RuntimeError || isStackOverflow(error)) {
@@ -252,7 +252,7 @@ export class LuaRuntime {
   }
 
   /**
-   * Copies a chunk with its name and mode into one block for fl_load. The
+   * Copies a chunk with its name and mode into one block for fr_load. The
    * parser can run Lua code (finalizers) while it reads, so the chunk never
    * lives in the shared scratch space.
    */
@@ -313,7 +313,7 @@ export class LuaRuntime {
     this.#memory = this.#exports.memory
     this.#refreshViews()
     this.#exports._initialize()
-    this.#stackBase = this.#exports.fl_stacksave()
+    this.#stackBase = this.#exports.fr_stacksave()
     this.#out = this.alloc(16)
     this.#ensureScratch(SCRATCH_MIN)
   }
@@ -325,7 +325,7 @@ export class LuaRuntime {
   }
 
   #imports(): WebAssembly.Imports {
-    const fivelab = {
+    const fiverunner = {
       call: (vm, L, fn, nargs) => {
         if (this.#crashed) throw this.#crashed
         const state = this.#state(vm)
@@ -355,7 +355,7 @@ export class LuaRuntime {
       },
     } satisfies CfxLuaHostImports
     return {
-      fivelab,
+      fiverunner,
       env: {
         emscripten_notify_memory_growth: (): void => this.#refreshViews(),
         __syscall_dup3: (): number => -WASI_ENOSYS,

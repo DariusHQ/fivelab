@@ -14,7 +14,7 @@ export class Extension {
   }
 }
 
-/** A value FiveLab gives scripts as msgpack, such as the arguments of an event. */
+/** A value FiveRunner gives scripts as msgpack, such as the arguments of an event. */
 export type PackedValue =
   | null
   | boolean

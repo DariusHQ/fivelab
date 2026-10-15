@@ -1,14 +1,14 @@
 # CfxLua for WebAssembly
 
-FiveLab runs Lua with the same runtime FiveM ships: CfxLua, Lua 5.4 with the LuaGLM
+FiveRunner runs Lua with the same runtime FiveM ships: CfxLua, Lua 5.4 with the LuaGLM
 extensions (vectors, quaternions, matrices, compound operators, safe navigation and the
 rest), plus the `msgpack` and `json` libraries FiveM opens in every script. This
 directory compiles that runtime to `src/core/lua/cfxlua.wasm`.
 
 - `vendor/` holds the sources as git submodules, pinned to the commits FiveM uses.
-- `fivelab.cpp` is a small C ABI that the TypeScript side (`src/core/lua`) calls.
+- `fiverunner.cpp` is a small C ABI that the TypeScript side (`src/core/lua`) calls.
 
-The compiled module is committed, so working on FiveLab does not need any of this.
+The compiled module is committed, so working on FiveRunner does not need any of this.
 
 ## Building
 

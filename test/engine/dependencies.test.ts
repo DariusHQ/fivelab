@@ -147,7 +147,7 @@ describe('dependencies', () => {
       '[resources] Stopping resource a',
     ])
     expect(proc.diagnostics).toEqual([
-      'a: a depends on b, which is stopping while a stops the resources that depend on it, as happens when resources depend on each other. FiveM would stop a again, and so on until its stack overflows, which FiveLab does not emulate: it stops a once.',
+      'a: a depends on b, which is stopping while a stops the resources that depend on it, as happens when resources depend on each other. FiveM would stop a again, and so on until its stack overflows, which FiveRunner does not emulate: it stops a once.',
     ])
   })
 

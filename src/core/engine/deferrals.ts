@@ -208,7 +208,7 @@ export class Deferral {
   #diagnose(name: string, resource: string, error: ConversionError): void {
     this.#manager.output.diagnose(
       resource,
-      `${name} was given ${error.message}: msgpack throws then, which FiveLab does not emulate, and it ignores the call.`,
+      `${name} was given ${error.message}: msgpack throws then, which FiveRunner does not emulate, and it ignores the call.`,
     )
   }
 

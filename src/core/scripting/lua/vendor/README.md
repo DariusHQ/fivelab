@@ -7,5 +7,5 @@ These files are copied unmodified from their projects; see
 | -------------- | ------------------------------------------------------------- | ------------------------------------------ |
 | `deferred.lua` | [zserge/lua-promises](https://github.com/zserge/lua-promises) | `b3004b0d8586f3a5a38307afaa135776c8067c57` |
 
-FiveM ships the same promise library as its `promise` global, so FiveLab loads it into
+FiveM ships the same promise library as its `promise` global, so FiveRunner loads it into
 every script runtime under that name.

@@ -1,5 +1,5 @@
 --[[
-    FiveLab exports: the exports table, through which scripts call the
+    FiveRunner exports: the exports table, through which scripts call the
     functions that resources export.
 
     A resource exports a function under a name with exports(name, fn), or by

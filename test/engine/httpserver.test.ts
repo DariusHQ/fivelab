@@ -353,7 +353,7 @@ response.send(true)`,
     const { got } = send(proc, '/api/')
     proc.manager.tick()
     const failed = (name: string, what: string) =>
-      `api: ${name} was given ${what}: msgpack throws then, which FiveLab does not emulate, and it ignores the rest of the call.`
+      `api: ${name} was given ${what}: msgpack throws then, which FiveRunner does not emulate, and it ignores the rest of the call.`
     expect([got, proc.diagnostics]).toEqual([
       [],
       [

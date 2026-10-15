@@ -69,7 +69,7 @@ const DEFAULT_CONTEXT: readonly Definition[] = [
  * The variables that FiveM's server defines as it starts, before its
  * configuration runs, as its components add them, with their defaults.
  * Those of the game, the network and the HTTP server are there, though
- * FiveLab does nothing with most of them: scripts and configurations
+ * FiveRunner does nothing with most of them: scripts and configurations
  * read and set them all the same.
  */
 const DEFINITIONS: readonly Definition[] = [
@@ -161,7 +161,7 @@ const RANGES: readonly (readonly [name: string, min: number, max: number])[] = [
  * Defines the variables of FiveM's server on the consoles of a server, as
  * it starts with OneSync and `gameBuild` as the process has them, as its
  * command line would set them, and adds the commands of its endpoints:
- * which FiveLab listens at none of, though the first that takes TCP sets
+ * which FiveRunner listens at none of, though the first that takes TCP sets
  * netPort, the primary port, as in FiveM.
  */
 export function defineServerVariables(

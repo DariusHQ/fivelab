@@ -1,11 +1,11 @@
 import { atoi } from '../libc.ts'
 
-/** The build of FiveM that FiveLab follows, whose typings its natives come from. */
+/** The build of FiveM that FiveRunner follows, whose typings its natives come from. */
 export const FIVEM_BUILD = 37175
 
 /**
  * The version that FiveM's servers of that build say they run, as those of
- * Windows say it, whose MSVC runtime FiveLab follows elsewhere too.
+ * Windows say it, whose MSVC runtime FiveRunner follows elsewhere too.
  */
 export const FIVEM_VERSION = `FXServer-master SERVER v1.0.0.${FIVEM_BUILD} win32`
 

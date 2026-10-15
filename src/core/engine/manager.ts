@@ -60,7 +60,7 @@ export interface ProcessOutput {
   write(channel: string, text: string): void
   /** Reports a Lua warning of a resource: what warn() reports and errors in finalizers. */
   warn(resource: string, message: string): void
-  /** Reports a mistake in how a resource uses FiveM that FiveLab noticed. */
+  /** Reports a mistake in how a resource uses FiveM that FiveRunner noticed. */
   diagnose(resource: string, message: string): void
 }
 
@@ -72,7 +72,7 @@ export interface ResourceManagerOptions {
   /** Milliseconds since the process started. It must not go back. */
   readonly time: () => number
   readonly output: ProcessOutput
-  /** Natives on top of FiveLab's, which replace those with their hash or name. */
+  /** Natives on top of FiveRunner's, which replace those with their hash or name. */
   readonly natives?: readonly NativeDefinition<NativeContext>[]
   /** On servers, whether OneSync is on, as it is by default in FiveM. */
   readonly oneSync?: boolean
@@ -285,7 +285,8 @@ export class ResourceManager {
       this.filesystemPermissions = undefined
       this.#scanner = undefined
       this.console = this.defaultConsole
-      // FiveM's NUI console listens to the variables first, for its main menu, which FiveLab has not.
+      // FiveM's NUI console listens to the variables first, for its main menu,
+      // which FiveRunner has not.
       this.console.variables.watch(() => {})
       // FiveM's client sends the server it joined the commands it has none for.
       this.console.commands.onFallback.connect(() => {
@@ -309,7 +310,7 @@ export class ResourceManager {
       )
       this.#endpoints = undefined
       // FiveM's client sends the bags it has to its server, and takes those of players as they come, as
-      // those of entities, which FiveLab has none of.
+      // those of entities, which FiveRunner has none of.
       this.states.register('global', true)
       this.states.registerTarget(0)
       this.states.addPreCreatePrefix('player:', true)
@@ -761,7 +762,7 @@ export class ResourceManager {
    * The stack trace of the runtimes that are running, as FiveM's
    * FORMAT_STACK_TRACE formats it: the frames each call into a runtime walks
    * between its boundaries, the innermost call first. Scripts may give
-   * frames of their own to put first, which FiveLab does not read; once a
+   * frames of their own to put first, which FiveRunner does not read; once a
    * stack trace was formatted, such calls get null until the outermost call
    * into a runtime returns, as in FiveM.
    */
@@ -772,7 +773,7 @@ export class ResourceManager {
     if (frames !== null && arrayLength(frames) > 0 && current !== undefined) {
       this.output.diagnose(
         current.resource.name,
-        'FormatStackTrace was given stack frames to put first, which FiveLab does not read yet: it leaves them out of the stack trace.',
+        'FormatStackTrace was given stack frames to put first, which FiveRunner does not read yet: it leaves them out of the stack trace.',
       )
     }
     let trace = ''
@@ -910,7 +911,7 @@ export class ResourceManager {
 
   /**
    * @internal An id for a new runtime. FiveM draws them from C's rand(),
-   * which FiveLab emulates as Windows has it, from the first number it gives.
+   * which FiveRunner emulates as Windows has it, from the first number it gives.
    */
   instanceId(): number {
     this.#rand = (Math.imul(this.#rand, 214_013) + 2_531_011) >>> 0

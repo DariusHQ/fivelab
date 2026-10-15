@@ -1,5 +1,5 @@
 --[[
-    FiveLab scheduler: Citizen threads, Wait, timeouts and Await, and the
+    FiveRunner scheduler: Citizen threads, Wait, timeouts and Await, and the
     boundaries that stack traces walk between.
 
     Threads are coroutines that the runtime resumes on its ticks, the way
@@ -29,10 +29,10 @@
     resumed, and where it last left the runtime, as TriggerEvent does.
 
     Loaded by the runtime with its host functions and a private table that
-    the other FiveLab scripts share.
+    the other FiveRunner scripts share.
 ]]
 
-local host, fivelab = ...
+local host, fiverunner = ...
 
 local type, error, select, rawget, setmetatable = type, error, select, rawget, setmetatable
 local pcall = pcall
@@ -355,10 +355,12 @@ G.ClearTimeout = Citizen.ClearTimeout
 local mainThread = coroutine_running()
 
 -- Whether stack traces leave out the frames of a chunk, as FiveM leaves out
--- those of C functions and of its own scripts, which FiveLab's stand for.
+-- those of C functions and of its own scripts, which FiveRunner's stand for.
+local CITIZEN_SCRIPTS, OWN_SCRIPTS = '@citizen:/', '@fiverunner:/'
 local function isHidden(source)
-    local prefix = string_sub(source, 1, 10)
-    return string_sub(source, 1, 1) == '=' or prefix == '@citizen:/' or prefix == '@fivelab:/'
+    return string_sub(source, 1, 1) == '='
+        or string_sub(source, 1, #CITIZEN_SCRIPTS) == CITIZEN_SCRIPTS
+        or string_sub(source, 1, #OWN_SCRIPTS) == OWN_SCRIPTS
 end
 
 -- Walks the stack of the innermost thread being resumed, as FiveM's stack
@@ -366,7 +368,7 @@ end
 -- boundary `from` (from the top for nil) to that of boundary `to` (to the
 -- bottom for nil). A thread that failed is not walked: FiveM walks the main
 -- thread of the runtime instead, where resource scripts seldom run.
-function fivelab.walkStack(from, to)
+function fiverunner.walkStack(from, to)
     local thread = runningThreads[#runningThreads]
     if thread == nil or coroutine_status(thread) == 'dead' then
         thread = mainThread
@@ -403,7 +405,7 @@ local due = {}
 -- Takes the threads that are due out of the queue. A process does this for
 -- all of its runtimes before it resumes threads in any of them, so that, as
 -- in FiveM, a thread queued during a tick waits for the next one.
-function fivelab.collect()
+function fiverunner.collect()
     local now = clock()
     local count, kept = #queue, 0
     for i = 1, count do
@@ -421,7 +423,7 @@ function fivelab.collect()
 end
 
 -- Resumes the threads collected as due, then queues the threads they created.
-function fivelab.resume()
+function fiverunner.resume()
     local batch = due
     due = {}
     for i = 1, #batch do
@@ -432,12 +434,12 @@ end
 
 -- Runs a script file of the resource in a new thread, as FiveM does: it may
 -- wait, and an error stops only that file.
-function fivelab.runFile(chunk)
+function fiverunner.runFile(chunk)
     createThreadNow(chunk)
     flush()
 end
 
-fivelab.createThreadNow = createThreadNow
-fivelab.runWithBoundaryEnd = runWithBoundaryEnd
-fivelab.flush = flush
-fivelab.errorMessage = errorMessage
+fiverunner.createThreadNow = createThreadNow
+fiverunner.runWithBoundaryEnd = runWithBoundaryEnd
+fiverunner.flush = flush
+fiverunner.errorMessage = errorMessage

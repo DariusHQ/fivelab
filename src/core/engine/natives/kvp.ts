@@ -158,14 +158,14 @@ export function kvpNatives(side: Side): NativeDefinition<NativeContext>[] {
         openDatabase(ctx)
         if (handle < 0 || handle >= FIND_HANDLES) {
           ctx.diagnose(
-            `FindKvp was given ${handle}, which is no handle: FiveM sets no result, so the script reads the handle as the string, which can crash. FiveLab returns nil.`,
+            `FindKvp was given ${handle}, which is no handle: FiveM sets no result, so the script reads the handle as the string, which can crash. FiveRunner returns nil.`,
           )
           return null
         }
         const search = searches[handle]
         if (search === undefined) {
           ctx.diagnose(
-            `FindKvp was given handle ${handle}, which no search has: FiveM reads its search all the same, and crashes. FiveLab returns nil.`,
+            `FindKvp was given handle ${handle}, which no search has: FiveM reads its search all the same, and crashes. FiveRunner returns nil.`,
           )
           return null
         }

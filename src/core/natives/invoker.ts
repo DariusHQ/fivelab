@@ -35,7 +35,7 @@ export interface NativeCaller {
   trace(text: string): void
   /** Reports a mistake in how the script uses a native. */
   diagnose(message: string): void
-  /** Learns that the script called a native that FiveLab knows but does not implement. */
+  /** Learns that the script called a native that FiveRunner knows but does not implement. */
   unimplemented(name: string, hash: bigint): void
 }
 
@@ -55,7 +55,7 @@ export interface NativeDeclaration<Ctx> {
    */
   readonly sets?: ResultType
   readonly params: readonly { readonly name: string; readonly type: ParamType }[]
-  /** Runs the native; null for natives FiveLab knows but does not implement. */
+  /** Runs the native; null for natives FiveRunner knows but does not implement. */
   readonly impl: ((ctx: Ctx, ...args: never[]) => unknown) | null
 }
 
@@ -201,7 +201,7 @@ function splitInt64(value: number | bigint): [number, number] {
   return [whole >>> 0, Math.floor(whole / 2 ** 32) >>> 0]
 }
 
-/** How a FiveLab message shows a float the way Lua would print it. */
+/** How a FiveRunner message shows a float the way Lua would print it. */
 function formatFloat(value: number): string {
   if (Object.is(value, -0)) return '-0.0'
   if (Number.isInteger(value) && Math.abs(value) < 1e16) return `${value}.0`
@@ -669,7 +669,7 @@ function processResults(call: Invocation, caller: NativeCaller): LuaValue[] {
 
 /**
  * Runs the call cfxlua.wasm marshalled at `ptr` (Citizen.InvokeNative in
- * native/fivelab.cpp) and returns what the script gets back. `native` is
+ * native/fiverunner.cpp) and returns what the script gets back. `native` is
  * undefined for a hash no native has: FiveM runs those as natives that do
  * nothing, without type information. Natives without an implementation do
  * nothing too, after the checks their types call for.

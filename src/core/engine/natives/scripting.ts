@@ -4,7 +4,7 @@ import { checkArgument } from './events.ts'
 
 /**
  * The game's GET_HASH_KEY. Its Lua function hashes names without calling
- * it, as FiveM's does, so only Citizen.InvokeNative gets here, where FiveLab
+ * it, as FiveM's does, so only Citizen.InvokeNative gets here, where FiveRunner
  * hashes as FiveM's server does, and takes NULL for "".
  */
 const clientHashKey = defineNative(

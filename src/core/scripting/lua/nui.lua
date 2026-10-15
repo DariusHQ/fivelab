@@ -1,5 +1,5 @@
 --[[
-    FiveLab NUI helpers for clients: RegisterNuiCallback and
+    FiveRunner NUI helpers for clients: RegisterNuiCallback and
     RegisterNUICallback, which report the errors of their callbacks, and
     SendNUIMessage, which encodes its message as JSON.
 

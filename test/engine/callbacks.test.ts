@@ -73,7 +73,7 @@ print(pcall(Citizen.InvokeFunctionReference, '_cfx_internal:0:2', msgpack.pack({
     ])
     expect(calls).toBe(1)
     expect(proc.diagnostics).toEqual([
-      'a: DuplicateFunctionReference was given _cfx_internal:7:1, which names no callback that is left: FiveM would return a reference by an index it does not set. FiveLab returns nil.',
+      'a: DuplicateFunctionReference was given _cfx_internal:7:1, which names no callback that is left: FiveM would return a reference by an index it does not set. FiveRunner returns nil.',
     ])
   })
 

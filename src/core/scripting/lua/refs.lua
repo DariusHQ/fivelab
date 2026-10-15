@@ -1,5 +1,5 @@
 --[[
-    FiveLab function references: Citizen.GetFunctionReference, the routines
+    FiveRunner function references: Citizen.GetFunctionReference, the routines
     the runtime runs for the references of its functions, and the proxies
     that call the functions of other runtimes.
 
@@ -17,10 +17,10 @@
     and hold the reference until they are collected, as in FiveM.
 
     Loaded by the runtime after the events script, with its host functions
-    and the table the FiveLab scripts share.
+    and the table the FiveRunner scripts share.
 ]]
 
-local host, fivelab = ...
+local host, fiverunner = ...
 
 local type, error, rawget, setmetatable = type, error, rawget, setmetatable
 local debug_getinfo = debug.getinfo
@@ -37,7 +37,7 @@ local Citizen_InvokeFunctionReference = Citizen.InvokeFunctionReference
 
 local Citizen = Citizen
 local formatStackTrace = host.formatStackTrace
-local runWithBoundaryEnd = fivelab.runWithBoundaryEnd
+local runWithBoundaryEnd = fiverunner.runWithBoundaryEnd
 
 -- The functions that references name, by index, with their holders.
 local references = {}
@@ -156,7 +156,7 @@ end
 -- function runs in a thread of its own: if it fails, the results are nil,
 -- and if it waits, a function that takes a callback, which the thread calls
 -- with the results, or false and the error, once the function returns.
-function fivelab.callRef(index, args)
+function fiverunner.callRef(index, args)
     local entry = references[index]
     if not entry then
         Citizen.Trace('Invalid ref call attempt: ' .. index .. '\n')
@@ -196,7 +196,7 @@ end
 
 -- Counts another holder of a reference, and returns the index it keeps, or
 -- -1 for a reference the runtime does not have.
-function fivelab.duplicateRef(index)
+function fiverunner.duplicateRef(index)
     local entry = references[index]
     if not entry then
         return -1
@@ -206,7 +206,7 @@ function fivelab.duplicateRef(index)
 end
 
 -- Takes a holder of a reference away, forgetting it once none is left.
-function fivelab.deleteRef(index)
+function fiverunner.deleteRef(index)
     local entry = references[index]
     if not entry then
         return

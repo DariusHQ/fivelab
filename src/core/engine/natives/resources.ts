@@ -27,7 +27,7 @@ export function resourceNatives(side: Side): NativeDefinition<NativeContext>[] {
         ctx.manager.getResource(checkArgument(resourceName, 0))?.state ?? 'missing',
     ),
     // FiveM lists resources in the order of its hash map of them, and
-    // FiveLab in the order they were added.
+    // FiveRunner in the order they were added.
     defineNative({ name: 'GET_NUM_RESOURCES', result: 'int', params: [] }, (ctx: NativeContext) => {
       found = Array.from(ctx.manager.resources, (resource) => resource.name)
       return found.length
@@ -136,7 +136,7 @@ export function resourceNatives(side: Side): NativeDefinition<NativeContext>[] {
  * with a drive or that lead out of the resource find nothing. Clients find
  * only the files of resources that servers sent them.
  *
- * FiveLab resolves names as FiveM does on Windows, where backslashes also
+ * FiveRunner resolves names as FiveM does on Windows, where backslashes also
  * separate directories and .. may follow a directory that does not exist,
  * and finds the files of the name as the files of the process do: those in
  * memory only by their exact names, as Linux does.
@@ -197,7 +197,7 @@ function savePath(ctx: NativeContext, resource: Resource, fileName: string): str
  * The bytes of `data` that SaveResourceFile writes: for a length of 0 or
  * -1, those before its first NUL, as C's strlen counts them, and otherwise
  * as many as the length says. Past the data, FiveM writes the NUL that ends
- * it, then whatever follows it in memory, which FiveLab does not emulate.
+ * it, then whatever follows it in memory, which FiveRunner does not emulate.
  */
 function bytesToSave(ctx: NativeContext, data: Uint8Array, length: number): Uint8Array {
   if (length === 0 || length === -1) {
@@ -206,7 +206,7 @@ function bytesToSave(ctx: NativeContext, data: Uint8Array, length: number): Uint
   }
   if (length < 0 || length > data.length + 1) {
     ctx.diagnose(
-      `SaveResourceFile was told to write ${length} bytes of data that has ${data.length}. FiveM would write what follows the data in memory, which FiveLab does not emulate: it writes the data.`,
+      `SaveResourceFile was told to write ${length} bytes of data that has ${data.length}. FiveM would write what follows the data in memory, which FiveRunner does not emulate: it writes the data.`,
     )
     return data
   }

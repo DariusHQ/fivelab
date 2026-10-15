@@ -1,10 +1,10 @@
 import { compareUtf8 } from '../libc.ts'
 import { stringOf, type MsgpackObject } from './msgpack.ts'
 
-/** Calls of callbacks with values that FiveM fails to convert, which FiveLab ignores. */
+/** Calls of callbacks with values that FiveM fails to convert, which FiveRunner ignores. */
 export class ConversionError extends Error {}
 
-/** How FiveLab names the types of msgpack values. */
+/** How FiveRunner names the types of msgpack values. */
 const KINDS: Readonly<Record<MsgpackObject['type'], string>> = {
   nil: 'nil',
   boolean: 'a boolean',

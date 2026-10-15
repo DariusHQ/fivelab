@@ -133,7 +133,7 @@ export function stateBagNatives(side: Side): NativeDefinition<NativeContext>[] {
       { name: 'GET_ENTITY_FROM_STATE_BAG_NAME', result: 'int', params: ['char* bagName'] },
       (_ctx: NativeContext, bagName) => {
         checkArgument(bagName, 0)
-        // FiveLab has no entities, which FiveM's bags of entities name.
+        // FiveRunner has no entities, which FiveM's bags of entities name.
         return 0
       },
     ),

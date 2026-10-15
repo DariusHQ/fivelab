@@ -57,7 +57,7 @@ describe('the catalog', () => {
   })
 })
 
-describe('natives FiveLab does not implement', () => {
+describe('natives FiveRunner does not implement', () => {
   it('do nothing and return zero values of their kinds, saying so once', async () => {
     const res = await createResource({ catalog: true, client: true })
     res.run(`local ped = PlayerPedId()
@@ -79,7 +79,7 @@ print(GetPlayerName(PlayerId()), GetEntityCoords(ped, true))`)
         'GetPlayerName',
       ].map(
         (name) =>
-          `${name} is not implemented in FiveLab yet: it does nothing and returns zero values.`,
+          `${name} is not implemented in FiveRunner yet: it does nothing and returns zero values.`,
       ),
     )
   })
@@ -129,7 +129,7 @@ print(table.concat(returned, ' '))`)
   })
 })
 
-describe('natives FiveLab implements', () => {
+describe('natives FiveRunner implements', () => {
   it('replace natives of the catalog, keeping their names and documentation lines', () => {
     const natives = registry('client')
     const stub = natives.byName('GetEntityCoords')!

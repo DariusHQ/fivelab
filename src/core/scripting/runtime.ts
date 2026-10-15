@@ -67,7 +67,7 @@ export interface ScriptHost {
   warn(message: string): void
   /** Writes to the console outside of the resource, on a channel such as citizen-scripting-core. */
   log(channel: string, text: string): void
-  /** Reports a mistake in how a script uses FiveM that FiveLab noticed. */
+  /** Reports a mistake in how a script uses FiveM that FiveRunner noticed. */
   diagnose(message: string): void
   /**
    * Sets a boundary of the innermost call into a runtime, as FiveM's script
@@ -113,10 +113,10 @@ for i = 1, select('#', ...), 2 do
 end
 return t`
 
-/** Reads the entry points the FiveLab scripts leave in their shared table. */
-const ENTRY_POINTS = `local fivelab = ...
-return fivelab.collect, fivelab.resume, fivelab.runFile, fivelab.flush, fivelab.walkStack,
-    fivelab.callRef, fivelab.duplicateRef, fivelab.deleteRef`
+/** Reads the entry points the FiveRunner scripts leave in their shared table. */
+const ENTRY_POINTS = `local fiverunner = ...
+return fiverunner.collect, fiverunner.resume, fiverunner.runFile, fiverunner.flush, fiverunner.walkStack,
+    fiverunner.callRef, fiverunner.duplicateRef, fiverunner.deleteRef`
 
 function release(...values: LuaValue[]): void {
   for (const value of values) if (value instanceof LuaRef) value.release()
@@ -124,7 +124,7 @@ function release(...values: LuaValue[]): void {
 
 function functionRef(value: LuaValue): LuaRef {
   if (value instanceof LuaRef && value.type === 'function') return value
-  throw new TypeError('A FiveLab script did not provide an entry point')
+  throw new TypeError('A FiveRunner script did not provide an entry point')
 }
 
 /** A value to call as Lua would, failing as Lua does for numbers and the like. */
@@ -242,7 +242,7 @@ export class ScriptRuntime implements NativeCaller {
   /**
    * Calls the event routine with an event the resource gets, as FiveM's Lua
    * runtime does: with the event's name, its msgpack payload and its source.
-   * FiveLab's events script sets the routine before any resource script
+   * FiveRunner's events script sets the routine before any resource script
    * runs, as FiveM's scheduler does. Like FiveM, this reports errors.
    */
   triggerEvent(name: string, payload: Uint8Array, source: string): void {
@@ -376,12 +376,12 @@ export class ScriptRuntime implements NativeCaller {
     this.host.warn(`[${channel}] ${message}`)
   }
 
-  /** Says once for each native that the scripts called it but FiveLab does not implement it. */
+  /** Says once for each native that the scripts called it but FiveRunner does not implement it. */
   unimplemented(name: string, hash: bigint): void {
     if (this.#unimplemented.has(hash)) return
     this.#unimplemented.add(hash)
     this.host.diagnose(
-      `${name} is not implemented in FiveLab yet: it does nothing and returns zero values.`,
+      `${name} is not implemented in FiveRunner yet: it does nothing and returns zero values.`,
     )
   }
 
@@ -395,9 +395,9 @@ export class ScriptRuntime implements NativeCaller {
     const citizen = this.#citizen()
     state.setGlobal('Citizen', citizen)
     release(citizen)
-    state.run(nativesSource, '@fivelab:/natives.lua')
+    state.run(nativesSource, '@fiverunner:/natives.lua')
 
-    const [promise] = state.run(deferredSource, '@fivelab:/deferred.lua')
+    const [promise] = state.run(deferredSource, '@fiverunner:/deferred.lua')
     state.setGlobal('promise', promise)
     release(promise)
 
@@ -409,7 +409,7 @@ export class ScriptRuntime implements NativeCaller {
     const checked = state.cFunction(CFunction.checked)
     const [hostTable] = state.run(
       TABLE,
-      '=fivelab:host',
+      '=fiverunner:host',
       'clock',
       state.hostFunction(() => host.clock()),
       'trace',
@@ -437,16 +437,16 @@ export class ScriptRuntime implements NativeCaller {
       }),
     )
     release(print, trace, checked)
-    const [fivelab] = state.run('return {}', '=fivelab:shared')
-    state.run(schedulerSource, '@fivelab:/scheduler.lua', hostTable, fivelab)
-    state.run(eventsSource, '@fivelab:/events.lua', hostTable, fivelab)
-    state.run(refsSource, '@fivelab:/refs.lua', hostTable, fivelab)
-    state.run(exportsSource, '@fivelab:/exports.lua', hostTable)
-    if (host.natives.client) state.run(nuiSource, '@fivelab:/nui.lua')
-    state.run(statesSource, '@fivelab:/states.lua', hostTable)
+    const [fiverunner] = state.run('return {}', '=fiverunner:shared')
+    state.run(schedulerSource, '@fiverunner:/scheduler.lua', hostTable, fiverunner)
+    state.run(eventsSource, '@fiverunner:/events.lua', hostTable, fiverunner)
+    state.run(refsSource, '@fiverunner:/refs.lua', hostTable, fiverunner)
+    state.run(exportsSource, '@fiverunner:/exports.lua', hostTable)
+    if (host.natives.client) state.run(nuiSource, '@fiverunner:/nui.lua')
+    state.run(statesSource, '@fiverunner:/states.lua', hostTable)
     const [collect, resume, runFile, flush, walkStack, callRef, duplicateRef, deleteRef] =
-      state.run(ENTRY_POINTS, '=fivelab:entry', fivelab)
-    release(hostTable, fivelab)
+      state.run(ENTRY_POINTS, '=fiverunner:entry', fiverunner)
+    release(hostTable, fiverunner)
     this.#collect = functionRef(collect)
     this.#resume = functionRef(resume)
     this.#runFile = functionRef(runFile)
@@ -532,7 +532,7 @@ export class ScriptRuntime implements NativeCaller {
             if (results !== undefined) return results
             // FiveM ends the message with the last error of the script host,
             // which natives set when they fail through it: those of other
-            // languages, and of use_experimental_fxv2_oal on servers. FiveLab
+            // languages, and of use_experimental_fxv2_oal on servers. FiveRunner
             // has none of them yet.
             throw new LuaError('Execution of function reference in script host failed: ')
           }),
@@ -554,7 +554,7 @@ export class ScriptRuntime implements NativeCaller {
         ['InvokeNative2', state.cFunction(CFunction.invokeNative2, invoker)],
       )
     }
-    const [citizen] = state.run(TABLE, '=fivelab:citizen', ...functions.flat())
+    const [citizen] = state.run(TABLE, '=fiverunner:citizen', ...functions.flat())
     release(checked, ...functions.map(([, value]) => value))
     return citizen ?? null
   }

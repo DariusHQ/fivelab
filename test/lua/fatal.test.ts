@@ -82,7 +82,7 @@ describe('fatal errors', () => {
     lua.setGlobal(
       'corrupt',
       lua.hostFunction(() => {
-        runtime.exports.fl_settop(0x7ffffff0, 0)
+        runtime.exports.fr_settop(0x7ffffff0, 0)
       }),
     )
     const error = thrown(() => lua.run(`pcall(corrupt)`, '=test'))
@@ -100,7 +100,7 @@ describe('fatal errors', () => {
       'Cannot pass [object Object] to Lua',
     )
     expect(() => lua.run(`error('plain')`, '=test')).toThrow(LuaError)
-    expect(runtime.exports.fl_gettop(lua.L)).toBe(0)
+    expect(runtime.exports.fr_gettop(lua.L)).toBe(0)
     expect(lua.dead).toBeUndefined()
   })
 })

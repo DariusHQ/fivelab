@@ -96,7 +96,7 @@ ${listener('a2')}`,
     const proc = await createProcess()
     startResource(proc, 'a', { 'main.lua': `RegisterConsoleListener(nil)` })
     expect(proc.diagnostics).toEqual([
-      'a: RegisterConsoleListener was given nil for the reference, which FiveM reads as a string all the same: its behavior is undefined, and it can crash. FiveLab adds no listener.',
+      'a: RegisterConsoleListener was given nil for the reference, which FiveM reads as a string all the same: its behavior is undefined, and it can crash. FiveRunner adds no listener.',
     ])
   })
 

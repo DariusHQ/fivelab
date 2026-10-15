@@ -23,7 +23,7 @@ export const VariableFlags = {
 
 /**
  * A type of FiveM's whose values are names, such as its enums, which
- * FiveLab keeps by those names: as its ConsoleArgumentType parses them.
+ * FiveRunner keeps by those names: as its ConsoleArgumentType parses them.
  */
 export interface NamedType {
   /** What FiveM's console calls the type. */
@@ -34,7 +34,7 @@ export interface NamedType {
 
 /**
  * The types of the values of console variables: those of FiveM's ConVar<T>
- * that FiveLab has, with uint16 for its unsigned shorts.
+ * that FiveRunner has, with uint16 for its unsigned shorts.
  */
 export type VariableType = 'string' | 'int' | 'uint16' | 'bool' | NamedType
 
@@ -241,7 +241,7 @@ export class Variables {
    * MarkConsoleVarModified does. FiveM takes the next listener before it
    * calls each one, so a listener may stop listening, and the listeners
    * that the last one adds miss the change. A listener that stops the next
-   * one from listening is undefined behavior in FiveM, and FiveLab goes on
+   * one from listening is undefined behavior in FiveM, and FiveRunner goes on
    * past it.
    */
   markModified(name: string): void {
@@ -261,7 +261,7 @@ export class Variables {
   /**
    * Takes an entry out, and with it the commands of its variable, unless
    * the variable stays as `kept`. FiveM drops a variable with the last
-   * reference to it, which FiveLab takes its entry to be.
+   * reference to it, which FiveRunner takes its entry to be.
    */
   #drop(entry: Entry, kept?: Variable): void {
     this.#entries.splice(this.#entries.indexOf(entry), 1)

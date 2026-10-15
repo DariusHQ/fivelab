@@ -140,7 +140,7 @@ end)`,
     // The error that Citizen.Await raises, from where the proxy awaits it.
     const stack = '^7\n^3> ref^7 (^5@a/main.lua^7:4)\n'
     const head = lines[2]!.slice('[script:b]   '.length)
-    expect(head).toMatch(/^fivelab:\/refs\.lua:\d+: \^1SCRIPT ERROR: @a\/main\.lua:4: x+$/)
+    expect(head).toMatch(/^fiverunner:\/refs\.lua:\d+: \^1SCRIPT ERROR: @a\/main\.lua:4: x+$/)
     expect(head).toHaveLength(1024)
     expect(lines).toEqual([
       // The export was called from a function that does not tail call it.

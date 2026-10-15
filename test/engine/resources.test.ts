@@ -265,13 +265,15 @@ files { 'html/*', 'stream/**' }`,
     ])
   })
 
-  it('have no runtime without Lua scripts, and say which scripts FiveLab skips', async () => {
+  it('have no runtime without Lua scripts, and say which scripts FiveRunner skips', async () => {
     const proc = await createProcess()
     const res = proc.add('a', { 'server.js': `console.log('js')` })
     res.start()
     expect(res.runtime).toBe(null)
     expect(proc.take()).toEqual(['[resources] Started resource a'])
-    expect(proc.diagnostics).toEqual(['a: FiveLab runs only Lua scripts, so it skips server.js.'])
+    expect(proc.diagnostics).toEqual([
+      'a: FiveRunner runs only Lua scripts, so it skips server.js.',
+    ])
   })
 
   it('say which entries of their manifest have plural names, which FiveM does not read', async () => {
@@ -309,9 +311,9 @@ dependencies 'b'`,
       .start()
     const later = `as FiveM does for resources with fx_version 'adamant' or later.`
     expect(proc.diagnostics).toEqual([
-      `a: FiveM would give the scripts of a the natives of natives_0193d0af.lua, by the versions its manifest names, which FiveLab does not have: it gives them those of natives_universal.lua, ${later}`,
-      `c: FiveM would give the scripts of c the natives of natives_21e43a33.lua, by the versions its manifest names, which FiveLab does not have: it gives them those of natives_universal.lua, ${later}`,
-      'd: FiveLab runs only Lua scripts, so it skips client.js.',
+      `a: FiveM would give the scripts of a the natives of natives_0193d0af.lua, by the versions its manifest names, which FiveRunner does not have: it gives them those of natives_universal.lua, ${later}`,
+      `c: FiveM would give the scripts of c the natives of natives_21e43a33.lua, by the versions its manifest names, which FiveRunner does not have: it gives them those of natives_universal.lua, ${later}`,
+      'd: FiveRunner runs only Lua scripts, so it skips client.js.',
     ])
     const server = await createProcess()
     server
@@ -405,7 +407,7 @@ end })`,
       '[resources] Started resource a',
     ])
     expect(proc.diagnostics).toEqual([
-      'a: a was started while it started. FiveM would then create another runtime for it and load its scripts again in both runtimes, which FiveLab does not emulate: it keeps the runtime it has.',
+      'a: a was started while it started. FiveM would then create another runtime for it and load its scripts again in both runtimes, which FiveRunner does not emulate: it keeps the runtime it has.',
     ])
   })
 })
@@ -983,8 +985,8 @@ print(SaveResourceFile('a', 'negative.txt', 'xy', -2), LoadResourceFile('a', 'ne
     expect(proc.diagnostics).toEqual([
       'a: SaveResourceFile cannot write missing/x.txt in a: there is no directory resources/a/missing, and FiveM creates none.',
       'a: SaveResourceFile cannot write x.txt in other: FiveM lets resources write the files of others only with add_filesystem_permission.',
-      'a: SaveResourceFile was told to write 10 bytes of data that has 2. FiveM would write what follows the data in memory, which FiveLab does not emulate: it writes the data.',
-      'a: SaveResourceFile was told to write -2 bytes of data that has 2. FiveM would write what follows the data in memory, which FiveLab does not emulate: it writes the data.',
+      'a: SaveResourceFile was told to write 10 bytes of data that has 2. FiveM would write what follows the data in memory, which FiveRunner does not emulate: it writes the data.',
+      'a: SaveResourceFile was told to write -2 bytes of data that has 2. FiveM would write what follows the data in memory, which FiveRunner does not emulate: it writes the data.',
     ])
   })
 

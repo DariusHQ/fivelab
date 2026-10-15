@@ -1,5 +1,5 @@
 /**
- * The C ABI of cfxlua.wasm, defined in native/fivelab.cpp. Pointers are
+ * The C ABI of cfxlua.wasm, defined in native/fiverunner.cpp. Pointers are
  * offsets into the module's linear memory.
  */
 
@@ -11,58 +11,58 @@ export interface CfxLuaExports {
   malloc(size: number): Ptr
   free(ptr: Ptr): void
 
-  fl_newstate(vm: number): Ptr
-  fl_close(L: Ptr): void
-  fl_openlibs(L: Ptr, mask: number): number
-  fl_memused(L: Ptr): number
-  fl_getmemlimit(L: Ptr): number
-  fl_setmemlimit(L: Ptr, limit: number): void
-  fl_gc(L: Ptr, what: number, arg: number): number
-  fl_sethook(L: Ptr, count: number): void
-  fl_stacksave(): Ptr
-  fl_stackrestore(sp: Ptr): void
+  fr_newstate(vm: number): Ptr
+  fr_close(L: Ptr): void
+  fr_openlibs(L: Ptr, mask: number): number
+  fr_memused(L: Ptr): number
+  fr_getmemlimit(L: Ptr): number
+  fr_setmemlimit(L: Ptr, limit: number): void
+  fr_gc(L: Ptr, what: number, arg: number): number
+  fr_sethook(L: Ptr, count: number): void
+  fr_stacksave(): Ptr
+  fr_stackrestore(sp: Ptr): void
 
-  fl_gettop(L: Ptr): number
-  fl_settop(L: Ptr, idx: number): void
-  fl_pushvalue(L: Ptr, idx: number): void
-  fl_type(L: Ptr, idx: number): number
+  fr_gettop(L: Ptr): number
+  fr_settop(L: Ptr, idx: number): void
+  fr_pushvalue(L: Ptr, idx: number): void
+  fr_type(L: Ptr, idx: number): number
 
-  fl_pushnil(L: Ptr): void
-  fl_pushboolean(L: Ptr, b: number): void
-  fl_pushinteger(L: Ptr, n: number): void
-  fl_pushinteger64(L: Ptr, n: bigint): void
-  fl_pushnumber(L: Ptr, n: number): void
-  fl_pushlstring(L: Ptr, s: Ptr, len: number): void
-  fl_pushvector(L: Ptr, kind: number, x: number, y: number, z: number, w: number): void
-  fl_pushhostfunction(L: Ptr, fn: number): void
-  fl_pushcfunction(L: Ptr, which: number, nup: number): void
-  fl_pushglobaltable(L: Ptr): void
+  fr_pushnil(L: Ptr): void
+  fr_pushboolean(L: Ptr, b: number): void
+  fr_pushinteger(L: Ptr, n: number): void
+  fr_pushinteger64(L: Ptr, n: bigint): void
+  fr_pushnumber(L: Ptr, n: number): void
+  fr_pushlstring(L: Ptr, s: Ptr, len: number): void
+  fr_pushvector(L: Ptr, kind: number, x: number, y: number, z: number, w: number): void
+  fr_pushhostfunction(L: Ptr, fn: number): void
+  fr_pushcfunction(L: Ptr, which: number, nup: number): void
+  fr_pushglobaltable(L: Ptr): void
 
-  fl_toboolean(L: Ptr, idx: number): number
-  fl_tonumber(L: Ptr, idx: number): number
-  fl_tointeger64(L: Ptr, idx: number): bigint
-  fl_isinteger(L: Ptr, idx: number): number
-  fl_isintegral(L: Ptr, idx: number): number
-  fl_isnumber(L: Ptr, idx: number): number
-  fl_tolstring(L: Ptr, idx: number, len: Ptr): Ptr
-  fl_tovector(L: Ptr, idx: number, out: Ptr): number
-  fl_tostring(L: Ptr, idx: number): number
+  fr_toboolean(L: Ptr, idx: number): number
+  fr_tonumber(L: Ptr, idx: number): number
+  fr_tointeger64(L: Ptr, idx: number): bigint
+  fr_isinteger(L: Ptr, idx: number): number
+  fr_isintegral(L: Ptr, idx: number): number
+  fr_isnumber(L: Ptr, idx: number): number
+  fr_tolstring(L: Ptr, idx: number, len: Ptr): Ptr
+  fr_tovector(L: Ptr, idx: number, out: Ptr): number
+  fr_tostring(L: Ptr, idx: number): number
 
-  fl_rawget(L: Ptr, idx: number): number
-  fl_rawset(L: Ptr, idx: number): void
-  fl_gettable(L: Ptr, idx: number): number
-  fl_createtable(L: Ptr, narr: number, nrec: number): void
-  fl_setlib(L: Ptr): void
-  fl_ref(L: Ptr): number
-  fl_unref(L: Ptr, ref: number): void
-  fl_getref(L: Ptr, ref: number): number
+  fr_rawget(L: Ptr, idx: number): number
+  fr_rawset(L: Ptr, idx: number): void
+  fr_gettable(L: Ptr, idx: number): number
+  fr_createtable(L: Ptr, narr: number, nrec: number): void
+  fr_setlib(L: Ptr): void
+  fr_ref(L: Ptr): number
+  fr_unref(L: Ptr, ref: number): void
+  fr_getref(L: Ptr, ref: number): number
 
-  fl_load(L: Ptr, buf: Ptr, len: number, name: Ptr, mode: Ptr): number
-  fl_pcall(L: Ptr, nargs: number, nresults: number): number
-  fl_traceback(L: Ptr, len: Ptr): Ptr
+  fr_load(L: Ptr, buf: Ptr, len: number, name: Ptr, mode: Ptr): number
+  fr_pcall(L: Ptr, nargs: number, nresults: number): number
+  fr_traceback(L: Ptr, len: Ptr): Ptr
 }
 
-/** Functions the module imports from the "fivelab" namespace. */
+/** Functions the module imports from the "fiverunner" namespace. */
 export interface CfxLuaHostImports {
   call(vm: number, L: Ptr, fn: number, nargs: number): number
   hook(vm: number, L: Ptr): number
@@ -94,7 +94,7 @@ export const LUA_TMATRIX = 10
 
 export const LUA_GCCOLLECT = 2
 
-/** Library bits for fl_openlibs, in the order FiveM opens them. */
+/** Library bits for fr_openlibs, in the order FiveM opens them. */
 export const LuaLib = {
   base: 1 << 0,
   table: 1 << 1,
@@ -120,7 +120,7 @@ export const FIVEM_LIBS =
   LuaLib.msgpack |
   LuaLib.json
 
-/** C functions fl_pushcfunction can push, after the upvalues they take. */
+/** C functions fr_pushcfunction can push, after the upvalues they take. */
 export const CFunction = {
   require: 1,
   /** Citizen.InvokeNative. Upvalue: the invoker host function. */
@@ -174,7 +174,10 @@ export const MetaField = {
   none: 10,
 } as const
 
-/** Offsets in FLNativeCall, the marshalled native call that native/fivelab.cpp hands to the invoker. */
+/**
+ * Offsets in FRNativeCall, the marshalled native call that
+ * native/fiverunner.cpp hands to the invoker.
+ */
 export const NativeCallLayout = {
   hash: 0,
   arguments: 8,
@@ -209,5 +212,5 @@ export const ArgSource = {
   pointer: 6,
 } as const
 
-/** Vector kinds used by fl_pushvector and fl_tovector. */
+/** Vector kinds used by fr_pushvector and fr_tovector. */
 export const VECTOR_KIND = { vector2: 2, vector3: 3, vector4: 4, quat: 5 } as const

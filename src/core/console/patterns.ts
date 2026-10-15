@@ -12,7 +12,7 @@ export function namePattern(pattern: string): (name: string) => boolean {
     .replaceAll(' ', '|')
     .replaceAll('+', '|')
     .replaceAll('*', '.*')
-  // FiveLab lowercases both, where FiveM ignores case as C's tolower does.
+  // FiveRunner lowercases both, where FiveM ignores case as C's tolower does.
   const regex = new RegExp(`^(?:${lowerAscii(source)})$`)
   return (name) => regex.test(lowerAscii(name))
 }

@@ -1,6 +1,6 @@
 /**
  * Compiles CfxLua, FiveM's Lua 5.4 runtime, together with its msgpack and json
- * libraries and the FiveLab bridge (native/fivelab.cpp) to WebAssembly.
+ * libraries and the FiveRunner bridge (native/fiverunner.cpp) to WebAssembly.
  *
  *   node scripts/build-wasm.ts
  *
@@ -103,7 +103,7 @@ const sources: { file: string; flags: string[] }[] = [
     file: `${vendor}/msgpack-c/src/${name}.c`,
     flags: ['-w'],
   })),
-  { file: 'native/fivelab.cpp', flags: ['-Wall', '-Wextra', '-Werror'] },
+  { file: 'native/fiverunner.cpp', flags: ['-Wall', '-Wextra', '-Werror'] },
 ]
 
 const optimize = '-O2'

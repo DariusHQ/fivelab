@@ -192,7 +192,7 @@ export function readManifest(
       const where = source.startsWith('@') ? `${path}/${source.slice(1)}` : String(args.get(4))
       entries.push([key, value, { file: where, line: Number(args.get(5)) }])
     })
-    const [init] = state.run(manifestSource, '@fivelab:/manifest.lua', add)
+    const [init] = state.run(manifestSource, '@fiverunner:/manifest.lua', add)
     if (!(init instanceof LuaRef)) throw new Error('The manifest prelude did not return a function')
     for (const name of ['dofile', 'load', 'loadfile']) state.setGlobal(name, null)
     for (const name of MANIFEST_FILES) {

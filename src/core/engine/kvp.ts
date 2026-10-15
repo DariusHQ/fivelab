@@ -1,7 +1,7 @@
 /**
  * Keys and values, as FiveM keeps the KVP of resources in a LevelDB
  * database on clients and a RocksDB one on servers. Keys are bytes, which
- * FiveLab keeps as binary strings, one character per byte, so that they
+ * FiveRunner keeps as binary strings, one character per byte, so that they
  * order as the databases order them: by their bytes.
  */
 export class KvpStore {

@@ -93,7 +93,7 @@ export class Dependencies {
         if (this.#stoppingDependants.has(dependant)) {
           this.#manager.output.diagnose(
             dependant.name,
-            `${dependant.name} depends on ${resource.name}, which is stopping while ${dependant.name} stops the resources that depend on it, as happens when resources depend on each other. FiveM would stop ${dependant.name} again, and so on until its stack overflows, which FiveLab does not emulate: it stops ${dependant.name} once.`,
+            `${dependant.name} depends on ${resource.name}, which is stopping while ${dependant.name} stops the resources that depend on it, as happens when resources depend on each other. FiveM would stop ${dependant.name} again, and so on until its stack overflows, which FiveRunner does not emulate: it stops ${dependant.name} once.`,
           )
           continue
         }

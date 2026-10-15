@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { Session, type PlayerIdentity } from '../../src/core/engine/index.ts'
 import { createProcess, join, runCommand, type TestProcess } from './helpers.ts'
 
-/** A manifest for clients that runs main.lua, with natives FiveLab has. */
+/** A manifest for clients that runs main.lua, with natives FiveRunner has. */
 const CLIENT_SCRIPT = [
   ['fx_version', 'cerulean'],
   ['client_script', 'main.lua'],
@@ -95,7 +95,7 @@ print(pcall(GetPlayerName, nil))`),
     client.add('c', { 'main.lua': `print(GetPlayerName(1))` }, CLIENT_SCRIPT).start()
     expect(client.take().filter((line) => line.startsWith('[script:'))).toEqual(['[script:c] nil'])
     expect(client.diagnostics).toEqual([
-      'c: GetPlayerName is not implemented in FiveLab yet: it does nothing and returns zero values.',
+      'c: GetPlayerName is not implemented in FiveRunner yet: it does nothing and returns zero values.',
     ])
   })
 

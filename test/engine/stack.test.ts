@@ -191,7 +191,7 @@ end)`,
       '[script:a] ',
     ])
     expect(proc.diagnostics).toEqual([
-      'a: FormatStackTrace was given stack frames to put first, which FiveLab does not read yet: it leaves them out of the stack trace.',
+      'a: FormatStackTrace was given stack frames to put first, which FiveRunner does not read yet: it leaves them out of the stack trace.',
     ])
   })
 })

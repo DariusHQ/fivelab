@@ -1,5 +1,5 @@
 /**
- * Generates FiveLab's catalog of FiveM natives (src/core/natives/catalog)
+ * Generates FiveRunner's catalog of FiveM natives (src/core/natives/catalog)
  * from the typings Cfx.re publishes for FiveM's JavaScript runtime,
  * @citizenfx/client and @citizenfx/server, at the versions package.json pins.
  *
@@ -11,7 +11,7 @@
  * each native has, which native a name that two of them share ends up with,
  * and how many lines of documentation start the Lua file for each name. They
  * tell parameters and results only as JavaScript sees them, which is enough
- * for natives FiveLab does not implement: those return zero values, and the
+ * for natives FiveRunner does not implement: those return zero values, and the
  * catalog gives each the parameters and results that make its Lua function
  * return as many values, of the same kinds, as FiveM's. Hashes are in the
  * typings only for natives with N_0x names; the others get the hash of
@@ -160,7 +160,7 @@ const RENAMED = new Set([
   'yield',
 ])
 
-/** FiveLab types for the JavaScript types of values. */
+/** FiveRunner types for the JavaScript types of values. */
 const VALUE_TYPES: Record<string, string> = {
   number: 'int',
   boolean: 'BOOL',
@@ -170,7 +170,7 @@ const VALUE_TYPES: Record<string, string> = {
   any: 'object',
 }
 
-/** FiveLab types for the JavaScript types of results. */
+/** FiveRunner types for the JavaScript types of results. */
 const RESULT_TYPES: Record<string, string> = {
   number: 'int',
   boolean: 'BOOL',
@@ -179,7 +179,7 @@ const RESULT_TYPES: Record<string, string> = {
   any: 'object',
 }
 
-/** FiveLab types for the JavaScript types of out-pointers. */
+/** FiveRunner types for the JavaScript types of out-pointers. */
 const POINTER_TYPES: Record<string, string> = {
   number: 'int*',
   'number[]': 'Vector3*',
@@ -193,7 +193,7 @@ function lookup(types: Record<string, string>, type: string, name: string): stri
 }
 
 /**
- * The parameters and result FiveLab declares a native of the catalog with,
+ * The parameters and result FiveRunner declares a native of the catalog with,
  * chosen so that its Lua function returns what FiveM's returns when the
  * native returns zeros: as many values, of the same kinds. The typings give
  * a native's out-pointers as more results, after its own, and leave them out

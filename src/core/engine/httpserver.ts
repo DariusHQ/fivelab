@@ -368,7 +368,7 @@ export class HttpServer {
             const ref = referenceOf(args[0])
             // FiveM gives the body as binary when told to, which Lua takes as a string all the same.
             if (args.length > 1) stringArgument(args[1]!)
-            // A body that came goes to the handler at once. FiveLab's requests come whole,
+            // A body that came goes to the handler at once. FiveRunner's requests come whole,
             // so no body is still to come.
             if (ref === undefined || pending === undefined) return
             const body = pending
@@ -454,7 +454,7 @@ function callback(
         if (!(error instanceof ConversionError)) throw error
         manager.output.diagnose(
           manager.currentResource?.name ?? '',
-          `${name} was given ${error.message}: msgpack throws then, which FiveLab does not emulate, and it ignores the rest of the call.`,
+          `${name} was given ${error.message}: msgpack throws then, which FiveRunner does not emulate, and it ignores the rest of the call.`,
         )
       }
     }),

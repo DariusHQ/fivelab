@@ -98,9 +98,9 @@ describe('Scanning resources', () => {
     ])
     expect(pathsOf(proc.manager)).toEqual(['a resources/[.cat]/a'])
     expect(proc.diagnostics).toEqual([
-      "chat: FiveM's server leaves out resources/[gameplay]/chat: it has its own chat among its system resources, which it takes instead, unless resources_useSystemChat is false. FiveLab has no system resources.",
-      "yarn: FiveM's server leaves out resources/[system]/yarn: it has its own yarn among its system resources, which it takes instead. FiveLab has no system resources.",
-      "webpack: FiveM's server leaves out resources/[system]/webpack: it has its own webpack among its system resources, which it takes instead. FiveLab has no system resources.",
+      "chat: FiveM's server leaves out resources/[gameplay]/chat: it has its own chat among its system resources, which it takes instead, unless resources_useSystemChat is false. FiveRunner has no system resources.",
+      "yarn: FiveM's server leaves out resources/[system]/yarn: it has its own yarn among its system resources, which it takes instead. FiveRunner has no system resources.",
+      "webpack: FiveM's server leaves out resources/[system]/webpack: it has its own webpack among its system resources, which it takes instead. FiveRunner has no system resources.",
     ])
     expect(proc.manager.console.variables.find('resources_useSystemChat')?.value).toBe('true')
     const own = await serverWith(files)
