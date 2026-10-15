@@ -357,6 +357,8 @@ return t.b, t.a, require('mine') == mine, select(2, pcall(mine.check))`,
 
   it('name argument types as Lua argument errors do', async () => {
     const lua = (await createRuntime()).newState()
+    lua.newMetatable('Thing*', [])
+    lua.setGlobal('thing', lua.newUserdata('Thing*', 1))
     const names: string[] = []
     lua.setGlobal(
       'types',
@@ -364,7 +366,11 @@ return t.b, t.a, require('mine') == mine, select(2, pcall(mine.check))`,
         for (let i = 1; i <= args.count + 1; i++) names.push(args.typeName(i))
       }),
     )
-    lua.run(`types(nil, true, 1, vec(1, 2), 's', {}, print, coroutine.create(print))`, '=test')
+    lua.run(
+      `types(nil, true, 1, vec(1, 2), 's', {}, print, coroutine.create(print), thing,
+  setmetatable({}, { __name = 'Named' }), setmetatable({}, { __name = 1 }))`,
+      '=test',
+    )
     expect(names).toEqual([
       'nil',
       'boolean',
@@ -374,8 +380,86 @@ return t.b, t.a, require('mine') == mine, select(2, pcall(mine.check))`,
       'table',
       'function',
       'thread',
+      // Values go by the __name of their metatables, when it is a string.
+      'Thing*',
+      'Named',
+      'table',
       'no value',
     ])
+  })
+
+  it('make userdata of registered metatables, and find them as luaL_testudata does', async () => {
+    const lua = (await createRuntime()).newState()
+    const meta = lua.newMetatable('Box*', [
+      ['get', lua.hostFunction((args) => args.userdata(1, 'Box*'))],
+    ])
+    lua.rawSet(meta, '__index', meta)
+    lua.newMetatable('Other*', [])
+    lua.setGlobal(
+      'box',
+      lua.hostFunction((args) => lua.returning(lua.newUserdata('Box*', Number(args.integer(1))))),
+    )
+    lua.setGlobal('other', lua.newUserdata('Other*', 9))
+    // find looks at its second argument, and sets a field meanwhile, which leaves the stack as it was.
+    lua.setGlobal(
+      'find',
+      lua.hostFunction((args) => {
+        lua.rawSet(meta, 'seen', true)
+        return [args.userdata(2, 'Box*'), args.type(args.count + 1)]
+      }),
+    )
+    expect(
+      lua.run(
+        `local b = box(7)
+local found, past = find(nil, b)
+return b:get(), found, past, find(b, other), find(b, {}), find(b), getmetatable(b).__name,
+  b.seen, type(b)`,
+        '=test',
+      ),
+    ).toEqual([7, 7, -1, 0, 0, 0, 'Box*', true, 'userdata'])
+  })
+
+  it('leave Lua alone to hold the values they return through returning', async () => {
+    const lua = (await createRuntime()).newState()
+    const collected: number[] = []
+    lua.newMetatable('Box*', [
+      ['__gc', lua.hostFunction((args) => void collected.push(args.userdata(1, 'Box*')))],
+    ])
+    lua.setGlobal(
+      'box',
+      lua.hostFunction((args) => lua.returning(lua.newUserdata('Box*', Number(args.integer(1))))),
+    )
+    lua.setGlobal(
+      'kept',
+      lua.hostFunction((args) => lua.newUserdata('Box*', Number(args.integer(1)))),
+    )
+    lua.run(`box(1) kept(2) collectgarbage() collectgarbage()`, '=test')
+    expect(collected).toEqual([1])
+  })
+
+  it('close over upvalues of their own, which their calls read and replace', async () => {
+    const lua = (await createRuntime()).newState()
+    const count = lua.hostFunction((args) => {
+      const next = Number(args.upvalue(1)) + 1
+      args.setUpvalue(1, next)
+      return [next, args.upvalue(2), args.get(1)]
+    })
+    lua.setGlobal(
+      'counter',
+      lua.hostFunction(() => lua.returning(lua.hostClosure(count, 0, 'tag'))),
+    )
+    expect(
+      lua.run(
+        `local a, b = counter(), counter()
+a() a()
+local n, tag, arg = a('x')
+return n, tag, arg, (b()), a == b`,
+        '=test',
+      ),
+    ).toEqual([3, 'tag', 'x', 1, false])
+    expect(() => lua.hostClosure(lua.hostFunction(() => {}))).not.toThrow()
+    const other = (await createRuntime()).newState()
+    expect(() => other.hostClosure(count)).toThrow('another Lua state')
   })
 })
 

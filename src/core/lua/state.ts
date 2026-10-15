@@ -105,21 +105,6 @@ const REF_TYPES: Record<number, LuaRefType> = {
   [LUA_TMATRIX]: 'matrix',
 }
 
-const TYPE_NAMES: Record<number, string> = {
-  [LUA_TNONE]: 'no value',
-  [LUA_TNIL]: 'nil',
-  [LUA_TBOOLEAN]: 'boolean',
-  [LUA_TLIGHTUSERDATA]: 'light userdata',
-  [LUA_TNUMBER]: 'number',
-  [LUA_TVECTOR]: 'vector',
-  [LUA_TSTRING]: 'string',
-  [LUA_TTABLE]: 'table',
-  [LUA_TFUNCTION]: 'function',
-  [LUA_TUSERDATA]: 'userdata',
-  [LUA_TTHREAD]: 'thread',
-  [LUA_TMATRIX]: 'matrix',
-}
-
 /** The message Lua receives for an exception thrown by a host function. */
 function errorMessage(error: unknown): string {
   if (
@@ -193,9 +178,41 @@ export class HostArgs {
     return this.state.runtime.exports.fr_type(this.L, index)
   }
 
-  /** The type of an argument as Lua's argument errors name it: "no value", "light userdata" and so on. */
+  /**
+   * The type of an argument as Lua's argument errors name it: the __name of
+   * its metatable if that is a string, as luaL_typeerror finds it, or else
+   * "no value", "light userdata" and so on.
+   */
   typeName(index: number): string {
-    return TYPE_NAMES[this.type(index)] ?? 'userdata'
+    const ex = this.state.runtime.exports
+    ex.fr_pushtypename(this.L, index)
+    const name = this.state.read(this.L, -1) as string
+    ex.fr_settop(this.L, -2)
+    return name
+  }
+
+  /**
+   * The id that an argument holds if it is a userdata of the metatable
+   * registered as `type`, as luaL_testudata finds it, or else 0; see
+   * LuaState.newUserdata.
+   */
+  userdata(index: number, type: string): number {
+    const { runtime } = this.state
+    return runtime.withString(`${type}\0`, (name) =>
+      runtime.exports.fr_testudata(this.L, index, name),
+    )
+  }
+
+  /** Upvalue `index` of the function that runs, from 1: what LuaState.hostClosure closed over. */
+  upvalue(index: number): LuaValue {
+    return this.state.read(this.L, this.state.runtime.exports.fr_upvalueindex(index + 1))
+  }
+
+  /** Replaces upvalue `index` of the function that runs, for its later calls to read. */
+  setUpvalue(index: number, value: LuaValue): void {
+    const ex = this.state.runtime.exports
+    this.state.push(this.L, value)
+    ex.fr_replace(this.L, ex.fr_upvalueindex(index + 1))
   }
 
   get(index: number): LuaValue {
@@ -281,6 +298,8 @@ export class LuaState {
   readonly #functions: HostFunction[] = []
   readonly #threads: Ptr[] = []
   readonly #finalizer = new FinalizationRegistry<number>((ref) => this.#release(ref))
+  /** References to release once a host function returns them; see returning. */
+  readonly #returned = new WeakSet<LuaRef>()
   readonly #onWarning: ((message: string) => void) | undefined
   readonly #warningDecoder = new TextDecoder()
   #warning = ''
@@ -469,6 +488,69 @@ export class LuaState {
   }
 
   /**
+   * A Lua function that calls host function `fn` and closes over
+   * `upvalues`, which its calls read with HostArgs.upvalue. Each is a
+   * closure of its own, as collectable as any value, while `fn` stays one.
+   */
+  hostClosure(fn: LuaHostFunction, ...upvalues: LuaValue[]): LuaRef {
+    if (fn.state !== this) throw new TypeError('Host function belongs to another Lua state')
+    return this.#enter((L) => {
+      for (const value of upvalues) this.push(L, value)
+      this.runtime.exports.fr_pushhostclosure(L, fn.id, upvalues.length)
+      return this.#popRef(L)
+    })
+  }
+
+  /**
+   * The metatable registered as `name`, created with its __name if there is
+   * none, as luaL_newmetatable does, which then gets `fields` in their order.
+   */
+  newMetatable(name: string, fields: readonly (readonly [key: string, value: LuaValue])[]): LuaRef {
+    return this.#enter((L) => {
+      const ex = this.runtime.exports
+      this.runtime.withString(`${name}\0`, (ptr) => ex.fr_newmetatable(L, ptr))
+      for (const [key, value] of fields) {
+        this.push(L, key)
+        this.push(L, value)
+        ex.fr_rawset(L, -3)
+      }
+      return this.#popRef(L)
+    })
+  }
+
+  /**
+   * Marks `ref` to be released as soon as a host function returns it, so
+   * that Lua alone holds the value then, as it holds what C functions return.
+   */
+  returning(ref: LuaRef): LuaRef {
+    this.#returned.add(ref)
+    return ref
+  }
+
+  /** Sets a field of a table without invoking metamethods. */
+  rawSet(table: LuaRef, key: LuaValue, value: LuaValue): void {
+    this.#enter((L) => {
+      const ex = this.runtime.exports
+      this.push(L, table)
+      this.push(L, key)
+      this.push(L, value)
+      ex.fr_rawset(L, -3)
+      ex.fr_settop(L, -2)
+    })
+  }
+
+  /**
+   * A new userdata that holds `id`, with the metatable registered as `type`,
+   * as C libraries make their objects; HostArgs.userdata finds the id.
+   */
+  newUserdata(type: string, id: number): LuaRef {
+    return this.#enter((L) => {
+      this.runtime.withString(`${type}\0`, (ptr) => this.runtime.exports.fr_newudata(L, ptr, id))
+      return this.#popRef(L)
+    })
+  }
+
+  /**
    * Interrupts scripts that run too long without returning to JavaScript.
    * Applies to threads created after the call, so set it before running code.
    */
@@ -638,12 +720,12 @@ export class LuaState {
       const result = host(new HostArgs(this, L, nargs))
       this.#throwIfDead()
       if (result === undefined) return 0
-      if (Array.isArray(result)) {
-        for (const value of result as readonly LuaValue[]) this.push(L, value)
-        return result.length
+      const values = Array.isArray(result) ? (result as readonly LuaValue[]) : [result as LuaValue]
+      for (const value of values) this.push(L, value)
+      for (const value of values) {
+        if (value instanceof LuaRef && this.#returned.delete(value)) value.release()
       }
-      this.push(L, result as LuaValue)
-      return 1
+      return values.length
     } catch (error) {
       // A Lua error raised by a nested call unwinds to its Lua frame.
       if (error instanceof WebAssembly.Exception) throw error

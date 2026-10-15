@@ -957,6 +957,17 @@ EMSCRIPTEN_KEEPALIVE void fr_pushhostfunction(lua_State *L, int fn) {
   lua_pushcclosure(L, fr_hostfunction, 1);
 }
 
+/*
+** Pushes a Lua function that calls host function `fn` and closes over the
+** `nup` values on top of the stack, which are its upvalues from 2 on.
+*/
+EMSCRIPTEN_KEEPALIVE void fr_pushhostclosure(lua_State *L, int fn, int nup) {
+  luaL_checkstack(L, 1, NULL);
+  lua_pushinteger(L, fn);
+  lua_insert(L, -(nup + 1));
+  lua_pushcclosure(L, fr_hostfunction, nup + 1);
+}
+
 /* Pushes C function `which`, closing over the `nup` values on top of the stack. */
 EMSCRIPTEN_KEEPALIVE void fr_pushcfunction(lua_State *L, int which, int nup) {
   luaL_checkstack(L, 1, NULL);
@@ -1109,6 +1120,65 @@ EMSCRIPTEN_KEEPALIVE void fr_unref(lua_State *L, int ref) {
 EMSCRIPTEN_KEEPALIVE int fr_getref(lua_State *L, int ref) {
   luaL_checkstack(L, 1, NULL);
   return lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+}
+
+/* }====================================================== */
+
+
+/*
+** {======================================================
+** Userdata and upvalues
+** =======================================================
+*/
+
+/*
+** Pushes the metatable registered as `tname`, which it creates with its
+** __name if there is none, as luaL_newmetatable does, saying whether it did.
+*/
+EMSCRIPTEN_KEEPALIVE int fr_newmetatable(lua_State *L, const char *tname) {
+  luaL_checkstack(L, 2, NULL);
+  return luaL_newmetatable(L, tname);
+}
+
+/* Pushes a new userdata that holds `id`, with the metatable registered as `tname`. */
+EMSCRIPTEN_KEEPALIVE void fr_newudata(lua_State *L, const char *tname, int id) {
+  luaL_checkstack(L, 2, NULL);
+  int *block = static_cast<int *>(lua_newuserdatauv(L, sizeof(int), 0));
+  *block = id;
+  luaL_setmetatable(L, tname);
+}
+
+/* The id that the userdata at `idx` holds if luaL_testudata finds it a `tname`, or 0. */
+EMSCRIPTEN_KEEPALIVE int fr_testudata(lua_State *L, int idx, const char *tname) {
+  luaL_checkstack(L, 2, NULL);
+  const int *block = static_cast<const int *>(luaL_testudata(L, idx, tname));
+  return block == NULL ? 0 : *block;
+}
+
+/*
+** Pushes the name of the type of the value at `idx` as luaL_typeerror gives
+** it: the __name of its metatable when that is a string, as it is for the
+** metatables of luaL_newmetatable, or else its type.
+*/
+EMSCRIPTEN_KEEPALIVE void fr_pushtypename(lua_State *L, int idx) {
+  luaL_checkstack(L, 2, NULL);
+  idx = lua_absindex(L, idx);
+  int field = luaL_getmetafield(L, idx, "__name");
+  if (field == LUA_TSTRING)
+    return;
+  if (field != LUA_TNIL)
+    lua_pop(L, 1);
+  lua_pushstring(L, lua_type(L, idx) == LUA_TLIGHTUSERDATA ? "light userdata" : luaL_typename(L, idx));
+}
+
+/* The pseudo-index of upvalue `i` of the C function that runs. */
+EMSCRIPTEN_KEEPALIVE int fr_upvalueindex(int i) {
+  return lua_upvalueindex(i);
+}
+
+/* Pops a value into the slot at `idx`, such as an upvalue of the C function that runs. */
+EMSCRIPTEN_KEEPALIVE void fr_replace(lua_State *L, int idx) {
+  lua_replace(L, idx);
 }
 
 /* }====================================================== */

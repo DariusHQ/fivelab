@@ -35,6 +35,7 @@ export interface CfxLuaExports {
   fr_pushlstring(L: Ptr, s: Ptr, len: number): void
   fr_pushvector(L: Ptr, kind: number, x: number, y: number, z: number, w: number): void
   fr_pushhostfunction(L: Ptr, fn: number): void
+  fr_pushhostclosure(L: Ptr, fn: number, nup: number): void
   fr_pushcfunction(L: Ptr, which: number, nup: number): void
   fr_pushglobaltable(L: Ptr): void
 
@@ -56,6 +57,13 @@ export interface CfxLuaExports {
   fr_ref(L: Ptr): number
   fr_unref(L: Ptr, ref: number): void
   fr_getref(L: Ptr, ref: number): number
+
+  fr_newmetatable(L: Ptr, tname: Ptr): number
+  fr_newudata(L: Ptr, tname: Ptr, id: number): void
+  fr_testudata(L: Ptr, idx: number, tname: Ptr): number
+  fr_pushtypename(L: Ptr, idx: number): void
+  fr_upvalueindex(i: number): number
+  fr_replace(L: Ptr, idx: number): void
 
   fr_load(L: Ptr, buf: Ptr, len: number, name: Ptr, mode: Ptr): number
   fr_pcall(L: Ptr, nargs: number, nresults: number): number
