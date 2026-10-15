@@ -21,6 +21,7 @@ FiveRunner follows FiveM's Windows server and its clients as closely as it can, 
 - FiveM's built-in variables are all defined, with their types, flags and defaults, but FiveRunner acts on few of them. It runs GTA V only, with no switch to RDR3 by `gamename`. `citizen_dir` is not defined, `sv_infoVersion` stays 0, there is no `increase_pool_size`, and `version` reads `win32`, as FiveRunner follows FiveM's Windows build throughout.
 - `endpoint_add_tcp` and `endpoint_add_udp` listen nowhere and resolve no names. The first TCP endpoint still sets the primary port.
 - There are no system resources.
+- Directories list in the order of NTFS, for scans of resources as for `io`, whatever order the files of the host have, with upper case as JavaScript has it for each UTF-16 code unit, which can differ from the table of an NTFS volume for a few characters.
 - Relative paths of resources use forward slashes, with no doubled slashes.
 - Nothing is rate-limited: events, latent events, state bags, commands and HTTP requests.
 
@@ -48,6 +49,6 @@ FiveRunner follows FiveM's Windows server and its clients as closely as it can, 
 - Paths know only the mounts of resources, `@name/`, and the server's own files: none of FiveM's `citizen:/`, `cache:/`, `kvs:/` and `memory:` devices, nor absolute paths of the host.
 - Where FiveM reports `errno` as earlier calls left it, for `io.flush`, `io.tmpfile`, failed `f:write` and `f:flush`, and failed `io.popen`, FiveRunner reports 0, "No error".
 - `f:read` with a count above 2^31 - 1 fails with "not enough memory", where FiveM fails or not by what it can allocate.
-- Directories list in the order of NTFS. Files are shared as FiveM's own handles share them, with no other processes or antivirus locks.
+- Files are shared as FiveM's own handles share them, with no other processes or antivirus locks.
 
 The rest of FiveM's VFS rules, the 64 KiB read-ahead of `f:lines`, the quirks of `f:read`, the cutting of files after writes and the 32-bit seeks of `SetFilePointer` are emulated as FiveM has them.

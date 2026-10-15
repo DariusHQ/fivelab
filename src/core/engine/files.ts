@@ -197,6 +197,23 @@ export function addFile(files: FileSystem, path: string, data: string | Uint8Arr
   }
 }
 
+/**
+ * Orders names as NTFS lists the entries of a directory, which
+ * FindFirstFile gives in that order: by their UTF-16 code units in upper
+ * case, each as one.
+ */
+export function ntfsOrder(a: string, b: string): number {
+  const upper = (unit: number) => {
+    const mapped = String.fromCharCode(unit).toUpperCase()
+    return mapped.length === 1 ? mapped.charCodeAt(0) : unit
+  }
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    const difference = upper(a.charCodeAt(i)) - upper(b.charCodeAt(i))
+    if (difference !== 0) return difference
+  }
+  return a.length - b.length
+}
+
 /** The path of the directory that a normalized path is in: "" for relative paths in none, and / for absolute ones. */
 export function parentOf(path: string): string {
   const slash = path.lastIndexOf('/')

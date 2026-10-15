@@ -77,6 +77,26 @@ describe('Scanning resources', () => {
     ])
   })
 
+  it('looks at the entries of directories in the order that NTFS lists them', async () => {
+    // Neither in the order these came nor in that of their bytes.
+    const proc = await serverWith({
+      'resources/b/fxmanifest.lua': manifest(),
+      'resources/_c/fxmanifest.lua': manifest(),
+      'resources/[b]/x/fxmanifest.lua': manifest(),
+      'resources/[A]/x/fxmanifest.lua': manifest(),
+      'resources/A/fxmanifest.lua': manifest(),
+    })
+    expect(scan(proc)).toContain(
+      '[resources:x] ^3Warning: x exists in more than one place (resources/[A]/x is used, the duplicate is resources/[b]/x)^7',
+    )
+    expect(pathsOf(proc.manager)).toEqual([
+      'A resources/A',
+      'b resources/b',
+      '_c resources/_c',
+      'x resources/[A]/x',
+    ])
+  })
+
   it('finds nothing without a resources directory', async () => {
     const proc = await serverWith({ 'server.cfg': '' })
     expect(scan(proc)).toEqual([
@@ -103,14 +123,14 @@ describe('Scanning resources', () => {
     expect(pathsOf(proc.manager)).toEqual(['a resources/[.cat]/a'])
     expect(proc.diagnostics).toEqual([
       "chat: FiveM's server leaves out resources/[gameplay]/chat: it has its own chat among its system resources, which it takes instead, unless resources_useSystemChat is false. FiveRunner has no system resources.",
-      "yarn: FiveM's server leaves out resources/[system]/yarn: it has its own yarn among its system resources, which it takes instead. FiveRunner has no system resources.",
       "webpack: FiveM's server leaves out resources/[system]/webpack: it has its own webpack among its system resources, which it takes instead. FiveRunner has no system resources.",
+      "yarn: FiveM's server leaves out resources/[system]/yarn: it has its own yarn among its system resources, which it takes instead. FiveRunner has no system resources.",
     ])
     expect(proc.manager.console.variables.find('resources_useSystemChat')?.value).toBe('true')
     const own = await serverWith(files)
     runCommand(own.manager, 'set resources_useSystemChat false', 'system.console')
     scan(own)
-    expect(pathsOf(own.manager)).toEqual(['chat resources/[gameplay]/chat', 'a resources/[.cat]/a'])
+    expect(pathsOf(own.manager)).toEqual(['a resources/[.cat]/a', 'chat resources/[gameplay]/chat'])
   })
 
   it('warns about resources in more than one place, categories with manifests and resources that do not load', async () => {
@@ -125,14 +145,14 @@ describe('Scanning resources', () => {
     })
     expect(scan(proc)).toEqual([
       '[resources] ^2Scanning resources.^7',
-      "[resources:cat] ^3Warning: [cat] is a category, but has a resource manifest (if this is meant to be a resource, don't use [] around the name)^7",
-      "[resources:old] ^3Warning: [old] is a category, but has a resource manifest (if this is meant to be a resource, don't use [] around the name)^7",
-      "[resources:dir] ^3Warning: [dir] is a category, but has a resource manifest (if this is meant to be a resource, don't use [] around the name)^7",
-      '[resources:empty] ^3Warning: empty does not have a resource manifest (fxmanifest.lua)^7',
       "[resources:broken] ^1Error: broken failed to load: Could not parse resource metadata file resources/broken/fxmanifest.lua: broken/fxmanifest.lua:1: unexpected symbol near '='^7",
-      '[resources:a] ^3Warning: a exists in more than one place (resources/a is used, the duplicate is resources/[x]/a)^7',
+      '[resources:empty] ^3Warning: empty does not have a resource manifest (fxmanifest.lua)^7',
+      "[resources:cat] ^3Warning: [cat] is a category, but has a resource manifest (if this is meant to be a resource, don't use [] around the name)^7",
+      "[resources:dir] ^3Warning: [dir] is a category, but has a resource manifest (if this is meant to be a resource, don't use [] around the name)^7",
+      "[resources:old] ^3Warning: [old] is a category, but has a resource manifest (if this is meant to be a resource, don't use [] around the name)^7",
       // A directory in a category is a resource, whatever its name.
       '[resources:fxmanifest.lua] ^3Warning: fxmanifest.lua does not have a resource manifest (fxmanifest.lua)^7',
+      '[resources:a] ^3Warning: a exists in more than one place (resources/a is used, the duplicate is resources/[x]/a)^7',
       '[resources] ^2Found 4 resources.^7',
       '[resources] ^16 warnings and 1 error were encountered.^7',
     ])

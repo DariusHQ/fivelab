@@ -1,4 +1,5 @@
 import { VariableFlags, type Variable } from '../console/index.ts'
+import { ntfsOrder } from './files.ts'
 import type { ResourceManager } from './manager.ts'
 import { isFxVersionAtLeast, isManifestVersionAtLeast, ManifestError } from './manifest.ts'
 import { pack } from './msgpack.ts'
@@ -51,6 +52,9 @@ export class ResourceScanner {
    * Scans for resources as FiveM's server does, and says what it found on
    * the console:
    *
+   * - It looks at the entries of each directory in the order that NTFS
+   *   lists them, as FiveM's Windows server does, whatever the order of the
+   *   files of the process.
    * - Directories in brackets are categories, which it looks in once it
    *   looked in the directory they are in, and the others are resources by
    *   their names, but for those that start with a dot and txAdmin's.
@@ -144,7 +148,8 @@ export class ResourceScanner {
       directory !== undefined;
       directory = directories.shift()
     ) {
-      for (const { name, directory: isDirectory } of files.list(directory) ?? []) {
+      const entries = [...(files.list(directory) ?? [])].sort((a, b) => ntfsOrder(a.name, b.name))
+      for (const { name, directory: isDirectory } of entries) {
         if (!isDirectory) continue
         const path = `${directory}/${name}`
         if (isCategory(name)) {

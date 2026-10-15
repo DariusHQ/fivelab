@@ -1,4 +1,4 @@
-import { parentOf } from './files.ts'
+import { ntfsOrder, parentOf } from './files.ts'
 import { normalizePath } from './glob.ts'
 import type { ResourceManager } from './manager.ts'
 import type { FileHandle } from './streams.ts'
@@ -84,23 +84,6 @@ function locate(manager: ResourceManager, path: string) {
 /** The directory path that FiveM makes of one that scripts give: with forward slashes, and one at its end. */
 function directoryPath(path: string): string {
   return `${path.replaceAll('\\', '/')}/`
-}
-
-/**
- * Orders names as NTFS lists the entries of a directory, which
- * FindFirstFile gives in that order: by their UTF-16 code units in upper
- * case, each as one.
- */
-function ntfsOrder(a: string, b: string): number {
-  const upper = (unit: number) => {
-    const mapped = String.fromCharCode(unit).toUpperCase()
-    return mapped.length === 1 ? mapped.charCodeAt(0) : unit
-  }
-  for (let i = 0; i < Math.min(a.length, b.length); i++) {
-    const difference = upper(a.charCodeAt(i)) - upper(b.charCodeAt(i))
-    if (difference !== 0) return difference
-  }
-  return a.length - b.length
 }
 
 /** The names of the entries of a directory of the files of the process, in the order NTFS lists them. */
