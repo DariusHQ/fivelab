@@ -317,6 +317,8 @@ export class LuaState {
   #warning = ''
   #entries = 0
   #sliceStart = 0
+  /** When the watchdog last raised its error in this slice, if it did. */
+  #interruptedAt: number | undefined
   #watchdog: Required<WatchdogOptions> | undefined
   #closed = false
   #dead: LuaFatalError | undefined
@@ -637,7 +639,7 @@ export class LuaState {
     this.runtime.checkEnter()
     this.#closed = true
     // Finalizers may call host functions while the state closes.
-    this.#sliceStart = performance.now()
+    this.#startSlice()
     try {
       this.runtime.exports.fr_close(this.L)
     } catch (error) {
@@ -785,23 +787,35 @@ export class LuaState {
     }
   }
 
-  /** Runs the watchdog for the fiverunner.hook import. */
+  /**
+   * Runs the watchdog for the fiverunner.hook import. It raises its error
+   * once in each timeout, so that the code that handles the error, such as
+   * what reports the errors of threads, has a timeout of its own to run.
+   */
   hook(L: Ptr): number {
     if (this.#dead) throw this.#dead
     const watchdog = this.#watchdog
     if (watchdog === undefined) return 0
-    const elapsed = performance.now() - this.#sliceStart
-    if (elapsed < watchdog.timeoutMs) return 0
+    const now = performance.now()
+    const elapsed = now - this.#sliceStart
     if (elapsed >= watchdog.killAfterMs) {
       throw this.#die(
         `Lua state stopped: a script kept running for ${Math.round(elapsed)} ms after the watchdog raised an error`,
       )
     }
+    if (now - (this.#interruptedAt ?? this.#sliceStart) < watchdog.timeoutMs) return 0
+    this.#interruptedAt = now
     this.#pushInLua(
       L,
       `script ran for more than ${watchdog.timeoutMs} ms without yielding (missing Wait in a loop?)`,
     )
     return 1
+  }
+
+  /** Starts a slice of time that scripts run in until they return to JavaScript. */
+  #startSlice(): void {
+    this.#sliceStart = performance.now()
+    this.#interruptedAt = undefined
   }
 
   /** Handles the fiverunner.panic import; returns the error to throw. */
@@ -866,7 +880,7 @@ export class LuaState {
     const L = thread ?? this.#threads.at(-1) ?? this.L
     const ex = this.runtime.exports
     const top = ex.fr_gettop(L)
-    if (this.#entries === 0) this.#sliceStart = performance.now()
+    if (this.#entries === 0) this.#startSlice()
     this.#entries++
     nestedCalls++
     try {

@@ -26,6 +26,20 @@ describe('watchdog', () => {
     expect(message).toMatch(/without yielding/)
   })
 
+  it('gives the code that handles its error a timeout of its own', async () => {
+    const lua = (await createRuntime()).newState()
+    lua.setWatchdog({ timeoutMs: 50, interval: 100 })
+    expect(
+      lua.run(
+        `local ok = pcall(function() while true do end end)
+local n = 0
+for i = 1, 10000 do n = n + i end
+return ok, n`,
+        '=test',
+      ),
+    ).toEqual([false, 50005000])
+  })
+
   it('stops a state that keeps catching its errors, sparing the others', async () => {
     const runtime = await createRuntime()
     const other = runtime.newState()
